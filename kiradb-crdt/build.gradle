@@ -1,0 +1,4 @@
+// kiradb-crdt: CRDT data structures (GCounter, PNCounter, LWWRegister, ORSet, MVRegister)
+dependencies {
+    implementation project(':kiradb-core')
+}

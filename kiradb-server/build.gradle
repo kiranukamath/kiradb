@@ -1,0 +1,10 @@
+// kiradb-server: Netty TCP server, RESP3 protocol, command routing
+dependencies {
+    implementation project(':kiradb-core')
+    implementation project(':kiradb-raft')
+    implementation project(':kiradb-crdt')
+    implementation project(':kiradb-services')
+
+    // Netty — added in Phase 2
+    // implementation 'io.netty:netty-all:4.1.116.Final'
+}

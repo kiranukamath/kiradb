@@ -1,0 +1,10 @@
+rootProject.name = 'kiradb'
+
+include 'kiradb-core'
+include 'kiradb-raft'
+include 'kiradb-crdt'
+include 'kiradb-server'
+include 'kiradb-services'
+include 'kiradb-semantic-cache'
+include 'kiradb-client'
+include 'kiradb-benchmark'

@@ -1,0 +1,3 @@
+// kiradb-core: storage engine, WAL, LSM Tree, MemTable, SSTable
+dependencies {
+}

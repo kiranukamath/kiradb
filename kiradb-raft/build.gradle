@@ -1,0 +1,4 @@
+// kiradb-raft: Raft consensus implementation
+dependencies {
+    implementation project(':kiradb-core')
+}

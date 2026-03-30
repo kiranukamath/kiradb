@@ -1,0 +1,4 @@
+// kiradb-semantic-cache: vector embedding cache, ANN search via Weaviate
+dependencies {
+    implementation project(':kiradb-core')
+}

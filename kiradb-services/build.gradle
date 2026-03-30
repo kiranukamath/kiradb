@@ -1,0 +1,5 @@
+// kiradb-services: feature flags, rate limiter, config store
+dependencies {
+    implementation project(':kiradb-core')
+    implementation project(':kiradb-crdt')
+}
