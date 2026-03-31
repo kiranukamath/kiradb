@@ -1,10 +1,22 @@
 // kiradb-server: Netty TCP server, RESP3 protocol, command routing
+plugins {
+    id 'application'
+}
+
+application {
+    mainClass = 'io.kiradb.server.KiraDBServer'
+    applicationDefaultJvmArgs = ['--enable-preview']
+}
+
 dependencies {
     implementation project(':kiradb-core')
     implementation project(':kiradb-raft')
     implementation project(':kiradb-crdt')
     implementation project(':kiradb-services')
 
-    // Netty — added in Phase 2
-    // implementation 'io.netty:netty-all:4.1.116.Final'
+    // Netty
+    implementation 'io.netty:netty-all:4.1.116.Final'
+
+    // Jedis — integration tests only
+    testImplementation 'redis.clients:jedis:5.2.0'
 }
