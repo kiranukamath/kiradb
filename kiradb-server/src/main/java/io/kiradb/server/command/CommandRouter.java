@@ -9,7 +9,7 @@ import io.kiradb.server.command.handlers.SetExHandler;
 import io.kiradb.server.command.handlers.SetHandler;
 import io.kiradb.server.command.handlers.TtlHandler;
 import io.kiradb.server.resp3.Resp3Value;
-import io.kiradb.server.storage.StorageEngine;
+import io.kiradb.core.storage.StorageEngine;
 
 import java.util.HashMap;
 import java.util.Map;

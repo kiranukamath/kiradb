@@ -3,11 +3,11 @@ package io.kiradb.server;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.kiradb.core.storage.StorageEngine;
+import io.kiradb.core.storage.lsm.LsmStorageEngine;
 import io.kiradb.server.command.CommandRouter;
 import io.kiradb.server.resp3.Resp3Decoder;
 import io.kiradb.server.resp3.Resp3Encoder;
-import io.kiradb.server.storage.InMemoryStorageEngine;
-import io.kiradb.server.storage.StorageEngine;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
@@ -56,11 +56,23 @@ public final class KiraDBServer {
     public static void main(final String[] args) throws InterruptedException {
         LOG.info("KiraDB starting...");
 
-        StorageEngine storage = new InMemoryStorageEngine();
-        CommandRouter router = new CommandRouter(storage);
-        KiraDBChannelHandler handler = new KiraDBChannelHandler(router);
+        java.nio.file.Path dataDir = java.nio.file.Path.of(
+                System.getProperty("kiradb.data.dir", "./data"));
 
-        start(CLIENT_PORT, handler);
+        try {
+            StorageEngine storage = new LsmStorageEngine(dataDir);
+
+            // Flush storage on clean shutdown (Ctrl+C)
+            Runtime.getRuntime().addShutdownHook(
+                    Thread.ofVirtual().unstarted(storage::close));
+
+            CommandRouter router = new CommandRouter(storage);
+            KiraDBChannelHandler handler = new KiraDBChannelHandler(router);
+            start(CLIENT_PORT, handler);
+        } catch (java.io.IOException e) {
+            LOG.error("Failed to open storage engine at {}: {}", dataDir, e.getMessage(), e);
+            System.exit(1);
+        }
     }
 
     /**
