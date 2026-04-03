@@ -1,7 +1,7 @@
 package io.kiradb.server.command;
 
 import io.kiradb.server.resp3.Resp3Value;
-import io.kiradb.server.storage.StorageEngine;
+import io.kiradb.core.storage.StorageEngine;
 
 /**
  * Contract for all KiraDB command implementations.

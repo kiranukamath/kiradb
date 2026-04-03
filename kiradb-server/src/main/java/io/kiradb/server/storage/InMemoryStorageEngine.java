@@ -1,6 +1,12 @@
 package io.kiradb.server.storage;
 
+import io.kiradb.core.storage.StorageEntry;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -83,12 +89,44 @@ public final class InMemoryStorageEngine implements StorageEngine {
         return true;
     }
 
+    @Override
+    public Iterator<StorageEntry> scan(final byte[] startKey, final byte[] endKey) {
+        // Collect all live entries into a sorted TreeMap for ordered iteration
+        TreeMap<String, Entry> sorted = new TreeMap<>(store);
+        String start = startKey == null ? null : toKey(startKey);
+        String end   = endKey   == null ? null : toKey(endKey);
+
+        Map<String, Entry> range;
+        if (start == null && end == null) {
+            range = sorted;
+        } else if (start == null) {
+            range = sorted.headMap(end);
+        } else if (end == null) {
+            range = sorted.tailMap(start);
+        } else {
+            range = sorted.subMap(start, end);
+        }
+
+        return range.entrySet().stream()
+                .filter(e -> !e.getValue().isExpired())
+                .map(e -> StorageEntry.live(
+                        e.getKey().getBytes(StandardCharsets.UTF_8),
+                        e.getValue().value()))
+                .map(se -> (StorageEntry) se)
+                .iterator();
+    }
+
+    @Override
+    public void close() {
+        // Nothing to flush — in-memory only
+    }
+
     /**
      * Keys are stored as UTF-8 strings internally so ConcurrentHashMap
      * can use value equality. Raw byte arrays use reference equality
      * in Java, which would break lookups.
      */
     private String toKey(final byte[] key) {
-        return new String(key, java.nio.charset.StandardCharsets.UTF_8);
+        return new String(key, StandardCharsets.UTF_8);
     }
 }

@@ -1,12 +1,17 @@
 package io.kiradb.server;
 
+import io.kiradb.core.storage.StorageEngine;
+import io.kiradb.core.storage.lsm.LsmStorageEngine;
 import io.kiradb.server.command.CommandRouter;
-import io.kiradb.server.storage.InMemoryStorageEngine;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.io.TempDir;
 import redis.clients.jedis.Jedis;
+
+import java.io.IOException;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -14,10 +19,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration test — starts a real KiraDB server on a random port,
+ * Integration test — starts a real KiraDB server backed by LsmStorageEngine,
  * connects with the Jedis Redis client, and exercises all Phase 2 commands.
  *
- * <p>This is the milestone check: if these pass, {@code redis-cli SET hello world} works.
+ * <p>Using LsmStorageEngine (rather than InMemoryStorageEngine) exercises the
+ * full stack including WAL writes on every SET command.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class KiraDBServerTest {
@@ -25,11 +31,12 @@ class KiraDBServerTest {
     private static final int TEST_PORT = 16379; // avoid conflict with local Redis
 
     private Thread serverThread;
+    private StorageEngine storage;
     private Jedis jedis;
 
     @BeforeAll
-    void startServer() throws Exception {
-        InMemoryStorageEngine storage = new InMemoryStorageEngine();
+    void startServer(@TempDir Path dataDir) throws Exception {
+        storage = new LsmStorageEngine(dataDir);
         CommandRouter router = new CommandRouter(storage);
         KiraDBChannelHandler handler = new KiraDBChannelHandler(router);
 
@@ -47,9 +54,12 @@ class KiraDBServerTest {
     }
 
     @AfterAll
-    void stopServer() {
+    void stopServer() throws IOException {
         if (jedis != null) {
             jedis.close();
+        }
+        if (storage != null) {
+            storage.close();
         }
         if (serverThread != null) {
             serverThread.interrupt();
@@ -113,7 +123,7 @@ class KiraDBServerTest {
     }
 
     @Test
-    void expireAndTtl() throws InterruptedException {
+    void expireAndTtl() {
         jedis.set("with-expire", "value");
         jedis.expire("with-expire", 10L);
         long ttl = jedis.ttl("with-expire");

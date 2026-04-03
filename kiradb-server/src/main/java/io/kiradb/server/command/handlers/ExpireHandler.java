@@ -3,7 +3,7 @@ package io.kiradb.server.command.handlers;
 import io.kiradb.server.command.Command;
 import io.kiradb.server.command.CommandHandler;
 import io.kiradb.server.resp3.Resp3Value;
-import io.kiradb.server.storage.StorageEngine;
+import io.kiradb.core.storage.StorageEngine;
 
 /**
  * EXPIRE key seconds — set a timeout on a key (in seconds).

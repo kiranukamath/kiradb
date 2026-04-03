@@ -3,7 +3,7 @@ package io.kiradb.server.command.handlers;
 import io.kiradb.server.command.Command;
 import io.kiradb.server.command.CommandHandler;
 import io.kiradb.server.resp3.Resp3Value;
-import io.kiradb.server.storage.StorageEngine;
+import io.kiradb.core.storage.StorageEngine;
 
 /**
  * SET key value [EX seconds] [PX milliseconds] — store a key-value pair.
