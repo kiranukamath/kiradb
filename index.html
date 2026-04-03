@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KiraDB — Distributed Database</title>
+  <meta name="description" content="A distributed database with adaptive tiered storage, built-in feature flags, rate limiting, config management, and semantic caching for AI workloads. Redis/Valkey protocol compatible." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #21262d;
+      --accent: #f97316;
+      --accent-dim: rgba(249, 115, 22, 0.12);
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --code-bg: #1c2128;
+      --green: #3fb950;
+      --blue: #58a6ff;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* NAV */
+    nav {
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      background: rgba(13, 17, 23, 0.95);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+    }
+
+    .nav-logo {
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .nav-logo span { color: var(--accent); }
+
+    .nav-links {
+      display: flex;
+      gap: 1.5rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* HERO */
+    .hero {
+      text-align: center;
+      padding: 5rem 2rem 4rem;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .badge {
+      display: inline-block;
+      background: var(--accent-dim);
+      border: 1px solid rgba(249, 115, 22, 0.3);
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      margin-bottom: 1.5rem;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      margin-bottom: 1.25rem;
+    }
+
+    h1 em { font-style: normal; color: var(--accent); }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 1.15rem;
+      max-width: 640px;
+      margin: 0 auto 2.5rem;
+    }
+
+    .cta-group {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.65rem 1.5rem;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .btn:hover { opacity: 0.85; text-decoration: none; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-ghost {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    /* CODE SNIPPET */
+    .snippet {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      text-align: left;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.88rem;
+      max-width: 500px;
+      margin: 3rem auto 0;
+      color: var(--text);
+      line-height: 1.8;
+    }
+
+    .snippet .comment { color: var(--muted); }
+    .snippet .cmd { color: var(--blue); }
+    .snippet .val { color: var(--green); }
+
+    /* FEATURES GRID */
+    .section {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 4rem 2rem;
+    }
+
+    .section-label {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+    }
+
+    .section-title {
+      text-align: center;
+      font-size: clamp(1.4rem, 3vw, 2rem);
+      font-weight: 700;
+      margin-bottom: 3rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      transition: border-color 0.2s;
+    }
+
+    .card:hover { border-color: rgba(249, 115, 22, 0.4); }
+
+    .card-icon {
+      font-size: 1.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .card h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .card p {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.6;
+    }
+
+    /* ARCHITECTURE */
+    .arch-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .arch-table th, .arch-table td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .arch-table th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .arch-table tr:last-child td { border-bottom: none; }
+
+    .tag {
+      display: inline-block;
+      background: var(--accent-dim);
+      color: var(--accent);
+      border-radius: 4px;
+      padding: 0.1rem 0.5rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+
+    /* ROADMAP */
+    .roadmap {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .milestone {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.9rem 1.25rem;
+    }
+
+    .version {
+      font-family: monospace;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--accent);
+      min-width: 56px;
+    }
+
+    .milestone-desc { flex: 1; font-size: 0.9rem; color: var(--muted); }
+    .milestone-desc strong { color: var(--text); display: block; }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .status-dot.active { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .status-dot.done { background: var(--green); }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--border);
+      text-align: center;
+      padding: 2rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    footer a { color: var(--muted); }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 600px) {
+      .nav-links { display: none; }
+      h1 { font-size: 2rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="nav-logo">&#9678; <span>Kira</span>DB</div>
+    <ul class="nav-links">
+      <li><a href="docs/getting-started.html">Docs</a></li>
+      <li><a href="https://github.com/kiranukamath/kiradb">GitHub</a></li>
+    </ul>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="badge">Active Development &mdash; v0.1.0</div>
+    <h1>The distributed database<br>that <em>does more</em></h1>
+    <p class="subtitle">
+      Redis-compatible. Adaptive tiered storage (memory &rarr; SSD &rarr; S3).
+      Built-in feature flags, rate limiting, config management, and semantic caching for AI workloads &mdash; all in one system.
+    </p>
+    <div class="cta-group">
+      <a class="btn btn-primary" href="docs/getting-started.html">Get Started</a>
+      <a class="btn btn-ghost" href="https://github.com/kiranukamath/kiradb">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+
+    <div class="snippet">
+      <div class="comment"># Works with any Redis client — zero migration</div>
+      <div><span class="cmd">docker run</span> -p 6379:6379 kiradb/kiradb:latest</div>
+      <br>
+      <div><span class="cmd">redis-cli</span> SET hello world</div>
+      <div><span class="val">+OK</span></div>
+      <div><span class="cmd">redis-cli</span> GET hello</div>
+      <div><span class="val">"world"</span></div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="section">
+    <div class="section-label">Why KiraDB</div>
+    <div class="section-title">One system. No external dependencies.</div>
+    <div class="grid">
+      <div class="card">
+        <div class="card-icon">&#128260;</div>
+        <h3>Redis-Compatible Protocol</h3>
+        <p>RESP3 wire protocol &mdash; every Redis client (Jedis, Lettuce, redis-cli) works without any code changes.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">&#128190;</div>
+        <h3>Adaptive Tiered Storage</h3>
+        <p>Hot data lives in memory, warm data on NVMe SSD, cold data auto-archived to S3. Zero manual configuration.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">&#127987;</div>
+        <h3>Built-in Feature Flags</h3>
+        <p>Percentage rollouts, instant kill switch, per-user targeting &mdash; without LaunchDarkly or a separate service.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">&#9201;</div>
+        <h3>Distributed Rate Limiter</h3>
+        <p>Token bucket and sliding window algorithms. Enforced consistently across all nodes via CRDT counters.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">&#129504;</div>
+        <h3>Semantic Cache</h3>
+        <p>Cache LLM responses by meaning, not exact match. "capital of France?" hits the same entry as "what is France's capital?" Saves 60&ndash;80% on LLM costs.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">&#128279;</div>
+        <h3>Raft Consensus</h3>
+        <p>Strong consistency across a 3-node cluster. Leader failure recovers in under 500ms. No data loss.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TECH STACK -->
+  <section class="section" style="padding-top: 0;">
+    <div class="section-label">Built With</div>
+    <div class="section-title">Engineering choices that matter</div>
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;">
+      <table class="arch-table">
+        <thead>
+          <tr>
+            <th>Layer</th>
+            <th>Technology</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Language</td>
+            <td><strong>Java 25</strong></td>
+            <td style="color: var(--muted)">Virtual threads, records, sealed classes, value types</td>
+          </tr>
+          <tr>
+            <td>Networking</td>
+            <td><strong>Netty 4.x</strong></td>
+            <td style="color: var(--muted)">Non-blocking I/O — same choice as Kafka and Cassandra</td>
+          </tr>
+          <tr>
+            <td>Storage</td>
+            <td><strong>LSM Tree + RocksDB</strong></td>
+            <td style="color: var(--muted)">Hand-rolled LSM, RocksDB JNI as production alternative</td>
+          </tr>
+          <tr>
+            <td>Consensus</td>
+            <td><strong>Raft</strong></td>
+            <td style="color: var(--muted)">Understandable distributed consensus, from scratch</td>
+          </tr>
+          <tr>
+            <td>Cold storage</td>
+            <td><strong>AWS S3 SDK v2</strong></td>
+            <td style="color: var(--muted)">Auto-archival of cold SSTables, async prefetch on access</td>
+          </tr>
+          <tr>
+            <td>Vector search</td>
+            <td><strong>Weaviate</strong></td>
+            <td style="color: var(--muted)">ANN search for semantic cache embeddings</td>
+          </tr>
+          <tr>
+            <td>Build</td>
+            <td><strong>Gradle multi-module</strong></td>
+            <td style="color: var(--muted)">Clean module boundaries, independent builds</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ROADMAP -->
+  <section class="section" style="padding-top: 0;">
+    <div class="section-label">Roadmap</div>
+    <div class="section-title">Where we are and where we're going</div>
+    <div class="roadmap">
+      <div class="milestone">
+        <div class="status-dot done"></div>
+        <div class="version">v0.1.0</div>
+        <div class="milestone-desc">
+          <strong>RESP3 Protocol Server</strong>
+          GET, SET, DEL, PING, TTL, EXPIRE &mdash; any Redis client works out of the box
+        </div>
+        <span class="tag">Done</span>
+      </div>
+      <div class="milestone">
+        <div class="status-dot active"></div>
+        <div class="version">v0.2.0</div>
+        <div class="milestone-desc">
+          <strong>Storage Engine</strong>
+          WAL, MemTable, SSTables, LSM Tree, Bloom Filters, Compaction
+        </div>
+        <span class="tag">In Progress</span>
+      </div>
+      <div class="milestone">
+        <div class="status-dot"></div>
+        <div class="version">v0.3.0</div>
+        <div class="milestone-desc">
+          <strong>Raft Consensus</strong>
+          3-node cluster, leader election, log replication, failure recovery
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="status-dot"></div>
+        <div class="version">v0.4.0</div>
+        <div class="milestone-desc">
+          <strong>Tiered Storage</strong>
+          Automatic hot &rarr; SSD &rarr; S3 tiering with access-frequency scoring
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="status-dot"></div>
+        <div class="version">v0.5.0</div>
+        <div class="milestone-desc">
+          <strong>CRDTs</strong>
+          GCounter, PNCounter, LWWRegister, ORSet, MVRegister
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="status-dot"></div>
+        <div class="version">v0.6.0</div>
+        <div class="milestone-desc">
+          <strong>Built-in Services</strong>
+          Feature flags, distributed rate limiter, config store with live push
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="status-dot"></div>
+        <div class="version">v0.7.0</div>
+        <div class="milestone-desc">
+          <strong>Semantic Cache</strong>
+          Vector embeddings, cosine similarity, ANN search for LLM prompt caching
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="status-dot"></div>
+        <div class="version">v1.0.0</div>
+        <div class="milestone-desc">
+          <strong>Production Ready</strong>
+          Benchmarks, React dashboard, Java SDK, full documentation
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <p>
+      Built by <a href="https://github.com/kiranukamath">Kiran Kamath</a> &mdash;
+      <a href="https://github.com/kiranukamath/kiradb/blob/main/LICENSE">Apache 2.0 License</a> &mdash;
+      <a href="https://github.com/kiranukamath/kiradb">GitHub</a>
+    </p>
+  </footer>
+
+</body>
+</html>
