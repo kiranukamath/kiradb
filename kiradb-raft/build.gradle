@@ -1,4 +1,5 @@
 // kiradb-raft: Raft consensus implementation
 dependencies {
     implementation project(':kiradb-core')
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
 }
