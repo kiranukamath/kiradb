@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 
 import io.kiradb.core.storage.StorageEngine;
 import io.kiradb.core.storage.lsm.LsmStorageEngine;
+import io.kiradb.core.storage.tier.MemCache;
+import io.kiradb.core.storage.tier.TieredStorageEngine;
 import io.kiradb.server.command.CommandRouter;
 import io.kiradb.server.resp3.Resp3Decoder;
 import io.kiradb.server.resp3.Resp3Encoder;
@@ -59,10 +61,15 @@ public final class KiraDBServer {
         java.nio.file.Path dataDir = java.nio.file.Path.of(
                 System.getProperty("kiradb.data.dir", "./data"));
 
-        try {
-            StorageEngine storage = new LsmStorageEngine(dataDir);
+        int maxCacheEntries = Integer.getInteger(
+                "kiradb.memcache.max.entries", MemCache.DEFAULT_MAX_ENTRIES);
 
-            // Flush storage on clean shutdown (Ctrl+C)
+        try {
+            StorageEngine tier2 = new LsmStorageEngine(dataDir);
+            StorageEngine storage = new TieredStorageEngine(tier2, maxCacheEntries);
+            LOG.info("TieredStorageEngine enabled (memCache max entries={})", maxCacheEntries);
+
+            // Closing TieredStorageEngine stops TierManager and closes tier2 underneath.
             Runtime.getRuntime().addShutdownHook(
                     Thread.ofVirtual().unstarted(storage::close));
 
