@@ -35,6 +35,12 @@ public final class RaftClusterDemo {
 
     private RaftClusterDemo() { }
 
+    /**
+     * Entry point — spin up 3 nodes, observe election, replication, and failover.
+     *
+     * @param args unused
+     * @throws Exception if any node fails to start
+     */
     public static void main(final String[] args) throws Exception {
         // 1. Data directories
         Path base = Files.createTempDirectory("kiradb-demo-");
@@ -145,10 +151,14 @@ public final class RaftClusterDemo {
         // 13. Cleanup
         System.out.println("\n--- Shutting down ---");
         for (RaftNode n : new RaftNode[]{node1, node2, node3}) {
-            try { n.close(); } catch (Exception ignored) { }
+            try {
+                n.close();
+            } catch (Exception ignored) { }
         }
         for (StorageEngine sm : new StorageEngine[]{sm1, sm2, sm3}) {
-            try { sm.close(); } catch (Exception ignored) { }
+            try {
+                sm.close();
+            } catch (Exception ignored) { }
         }
         System.out.println("Done.");
     }
@@ -203,8 +213,12 @@ public final class RaftClusterDemo {
                                        final RaftNode n1, final RaftNode n2, final RaftNode n3,
                                        final StorageEngine s1, final StorageEngine s2,
                                        final StorageEngine s3) {
-        if (target == n1) { return s1; }
-        if (target == n2) { return s2; }
+        if (target == n1) {
+            return s1;
+        }
+        if (target == n2) {
+            return s2;
+        }
         return s3;
     }
 
@@ -212,8 +226,12 @@ public final class RaftClusterDemo {
             final RaftNode n1, final RaftNode n2, final RaftNode n3,
             final RaftNode dead, final RaftNode newLeader,
             final StorageEngine s1, final StorageEngine s2, final StorageEngine s3) {
-        if (n1 != dead && n1 != newLeader) { return s1; }
-        if (n2 != dead && n2 != newLeader) { return s2; }
+        if (n1 != dead && n1 != newLeader) {
+            return s1;
+        }
+        if (n2 != dead && n2 != newLeader) {
+            return s2;
+        }
         return s3;
     }
 }
