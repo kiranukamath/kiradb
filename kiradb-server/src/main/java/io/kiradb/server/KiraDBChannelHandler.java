@@ -53,7 +53,7 @@ public final class KiraDBChannelHandler extends SimpleChannelInboundHandler<Resp
         }
 
         LOG.debug("Command: {} {}", command.name(), command.args());
-        Resp3Value response = router.route(command);
+        Resp3Value response = router.route(command, ctx.channel());
         ctx.writeAndFlush(response);
     }
 

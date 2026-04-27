@@ -58,17 +58,28 @@ public final class LWWRegister {
     }
 
     /**
-     * Write a new value, stamped with the current wall clock and local node id.
+     * Write a new value as a local write. Always wins over our own prior state.
+     *
+     * <p>The timestamp is the wall clock, monotonically advanced if the wall clock
+     * hasn't ticked since the last local write — this prevents two writes within
+     * the same millisecond from the same node from racing under the LWW tiebreaker
+     * (which compares node ids and would falsely reject the second write because
+     * {@code idA.compareTo(idA) == 0}).
      *
      * @param newValue the new value (may be null to clear)
      */
-    public void set(final byte[] newValue) {
-        set(newValue, System.currentTimeMillis());
+    public synchronized void set(final byte[] newValue) {
+        long now = System.currentTimeMillis();
+        long ts = (now > this.timestampMillis) ? now : this.timestampMillis + 1;
+        this.value = newValue;
+        this.timestampMillis = ts;
+        this.writerNodeId = localNodeId;
     }
 
     /**
-     * Write a new value with an explicit timestamp (useful for tests and when
-     * the caller has a hybrid logical clock).
+     * Write a new value with an explicit timestamp, applying the LWW rule (the
+     * write is rejected if it loses to the current state). Useful for tests and
+     * for replaying an externally-stamped write at a known time.
      *
      * @param newValue the new value (may be null to clear)
      * @param timestamp epoch-millis tagged on this write
