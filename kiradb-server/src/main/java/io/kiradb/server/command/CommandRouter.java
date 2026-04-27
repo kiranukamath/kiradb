@@ -1,5 +1,7 @@
 package io.kiradb.server.command;
 
+import io.kiradb.crdt.CrdtStore;
+import io.kiradb.server.command.handlers.CrdtHandler;
 import io.kiradb.server.command.handlers.DelHandler;
 import io.kiradb.server.command.handlers.ExistsHandler;
 import io.kiradb.server.command.handlers.ExpireHandler;
@@ -29,14 +31,26 @@ public final class CommandRouter {
 
     private final Map<String, CommandHandler> handlers = new HashMap<>();
     private final StorageEngine storage;
+    private final CrdtStore crdtStore;
 
     /**
-     * Create a router wired to the given storage engine.
+     * Create a router with no CRDT support. Convenience for tests that don't exercise CRDT commands.
      *
      * @param storage the storage engine all handlers will read/write
      */
     public CommandRouter(final StorageEngine storage) {
+        this(storage, null);
+    }
+
+    /**
+     * Create a router wired to the given storage engine and (optionally) a CRDT store.
+     *
+     * @param storage   the storage engine all handlers will read/write
+     * @param crdtStore the CRDT store; if null, {@code CRDT.*} commands are not registered
+     */
+    public CommandRouter(final StorageEngine storage, final CrdtStore crdtStore) {
         this.storage = storage;
+        this.crdtStore = crdtStore;
         registerBuiltins();
     }
 
@@ -75,6 +89,22 @@ public final class CommandRouter {
         register("PEXPIRE", new ExpireHandler(true));
         register("SETEX", new SetExHandler(false));
         register("PSETEX", new SetExHandler(true));
+
+        if (crdtStore != null) {
+            CrdtHandler crdt = new CrdtHandler(crdtStore);
+            register("CRDT.INCR", crdt);
+            register("CRDT.GET", crdt);
+            register("CRDT.PNADD", crdt);
+            register("CRDT.PNGET", crdt);
+            register("CRDT.LWWSET", crdt);
+            register("CRDT.LWWGET", crdt);
+            register("CRDT.MVSET", crdt);
+            register("CRDT.MVGET", crdt);
+            register("CRDT.SADD", crdt);
+            register("CRDT.SREM", crdt);
+            register("CRDT.SMEMBERS", crdt);
+            register("CRDT.MERGE", crdt);
+        }
     }
 
     /**

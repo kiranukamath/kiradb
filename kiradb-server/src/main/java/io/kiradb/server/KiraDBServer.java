@@ -7,6 +7,7 @@ import io.kiradb.core.storage.StorageEngine;
 import io.kiradb.core.storage.lsm.LsmStorageEngine;
 import io.kiradb.core.storage.tier.MemCache;
 import io.kiradb.core.storage.tier.TieredStorageEngine;
+import io.kiradb.crdt.CrdtStore;
 import io.kiradb.server.command.CommandRouter;
 import io.kiradb.server.resp3.Resp3Decoder;
 import io.kiradb.server.resp3.Resp3Encoder;
@@ -50,6 +51,25 @@ public final class KiraDBServer {
     }
 
     /**
+     * Resolve a stable node identity for CRDT slot ownership.
+     *
+     * <p>Priority: {@code -Dkiradb.node.id=…} → hostname → {@code "node"}.
+     * NodeId stability across restarts is critical: a drifting id splits one
+     * logical node into two and would double counters / resurrect set elements.
+     */
+    private static String resolveNodeId() {
+        String prop = System.getProperty("kiradb.node.id");
+        if (prop != null && !prop.isBlank()) {
+            return prop;
+        }
+        try {
+            return java.net.InetAddress.getLocalHost().getHostName();
+        } catch (java.net.UnknownHostException e) {
+            return "node";
+        }
+    }
+
+    /**
      * Main entry point.
      *
      * @param args command-line arguments (unused for now)
@@ -73,7 +93,11 @@ public final class KiraDBServer {
             Runtime.getRuntime().addShutdownHook(
                     Thread.ofVirtual().unstarted(storage::close));
 
-            CommandRouter router = new CommandRouter(storage);
+            String nodeId = resolveNodeId();
+            CrdtStore crdtStore = new CrdtStore(storage, nodeId);
+            LOG.info("CrdtStore enabled (nodeId={})", nodeId);
+
+            CommandRouter router = new CommandRouter(storage, crdtStore);
             KiraDBChannelHandler handler = new KiraDBChannelHandler(router);
             start(CLIENT_PORT, handler);
         } catch (java.io.IOException e) {
