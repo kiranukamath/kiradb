@@ -321,7 +321,7 @@
 
   <!-- HERO -->
   <section class="hero">
-    <div class="badge">Active Development &mdash; v0.3.0</div>
+    <div class="badge">Active Development &mdash; v0.6.0 shipped, v0.7.0 in progress</div>
     <h1>The distributed database<br>that <em>does more</em></h1>
     <p class="subtitle">
       Redis-compatible. Adaptive tiered storage (memory &rarr; SSD &rarr; S3).
@@ -453,7 +453,7 @@
         <span class="tag">Done</span>
       </div>
       <div class="milestone">
-        <div class="status-dot active"></div>
+        <div class="status-dot done"></div>
         <div class="version">v0.2.0</div>
         <div class="milestone-desc">
           <strong>Storage Engine</strong>
@@ -462,44 +462,56 @@
         <span class="tag">Done</span>
       </div>
       <div class="milestone">
-        <div class="status-dot"></div>
+        <div class="status-dot done"></div>
         <div class="version">v0.3.0</div>
         <div class="milestone-desc">
           <strong>Raft Consensus</strong>
           3-node cluster, leader election, log replication, failure recovery
         </div>
-        <span class="tag">In Progress</span>
+        <span class="tag">Done</span>
       </div>
       <div class="milestone">
-        <div class="status-dot"></div>
+        <div class="status-dot done"></div>
         <div class="version">v0.4.0</div>
         <div class="milestone-desc">
-          <strong>Tiered Storage</strong>
-          Automatic hot &rarr; SSD &rarr; S3 tiering with access-frequency scoring
+          <strong>Adaptive Tiered Storage</strong>
+          MemCache (hot, 35% of heap) &rarr; LsmStorageEngine (warm, SSD), pluggable orchestrator
         </div>
+        <span class="tag">Done</span>
       </div>
       <div class="milestone">
-        <div class="status-dot"></div>
+        <div class="status-dot done"></div>
         <div class="version">v0.5.0</div>
         <div class="milestone-desc">
           <strong>CRDTs</strong>
-          GCounter, PNCounter, LWWRegister, ORSet, MVRegister
+          GCounter, PNCounter, LWWRegister, MVRegister, ORSet &mdash; with serialization &amp; convergence tests
         </div>
+        <span class="tag">Done</span>
       </div>
       <div class="milestone">
-        <div class="status-dot"></div>
+        <div class="status-dot done"></div>
         <div class="version">v0.6.0</div>
         <div class="milestone-desc">
           <strong>Built-in Services</strong>
-          Feature flags, distributed rate limiter, config store with live push
+          FLAG.* (LWW + sticky bucketing), RL.* (sliding-window over GCounter), CFG.* (history + Netty server-push)
         </div>
+        <span class="tag">Done</span>
       </div>
       <div class="milestone">
-        <div class="status-dot"></div>
+        <div class="status-dot active"></div>
         <div class="version">v0.7.0</div>
         <div class="milestone-desc">
           <strong>Semantic Cache</strong>
           Vector embeddings, cosine similarity, ANN search for LLM prompt caching
+        </div>
+        <span class="tag">In Progress</span>
+      </div>
+      <div class="milestone">
+        <div class="status-dot"></div>
+        <div class="version">v0.8.0</div>
+        <div class="milestone-desc">
+          <strong>Dashboard + Java SDK</strong>
+          React dashboard for real-time cluster state; fluent Java SDK with connection pooling
         </div>
       </div>
       <div class="milestone">
@@ -507,7 +519,7 @@
         <div class="version">v1.0.0</div>
         <div class="milestone-desc">
           <strong>Production Ready</strong>
-          Benchmarks, React dashboard, Java SDK, full documentation
+          Benchmarks, full documentation, hardening pass against the Phase 13 backlog
         </div>
       </div>
     </div>

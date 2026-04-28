@@ -45,14 +45,16 @@ KiraDB ships all of this as **one system**, **one deployment**, **zero external 
 
 A distributed database with:
 
-- **Adaptive Tiered Storage** — hot data in memory, warm on NVMe SSD, cold archived to S3. Fully automatic. No manual config.
+- **Adaptive Tiered Storage** — hot data in memory (MemCache, 35% of heap), warm on NVMe SSD via LSM Tree. Pluggable `TierOrchestrator` interface so promotion/eviction policy can be swapped (rule-based today, AI-driven later). S3 cold tier reserved for backups, not the read path.
 - **Raft Consensus** — strong consistency across nodes. Survives leader failures. Quorum-based writes.
-- **CRDTs** — conflict-free data structures for high-write workloads where coordination is too expensive.
-- **Semantic Cache** — cache LLM responses by meaning, not exact string match. Reduces LLM API costs by 60–80%.
-- **Built-in Feature Flags** — with AI-assisted rollout that adjusts percentage based on your goal metric automatically.
-- **Distributed Rate Limiter** — enforced across the entire cluster using CRDT counters. No coordination overhead.
-- **Config Store** — hierarchical, versioned, with live push to subscribers. Replaces Vault + Consul for most teams.
-- **Redis/Valkey Compatible** — speaks RESP3. Any existing Redis client works. Drop-in replacement.
+- **CRDTs** — conflict-free data structures for high-write workloads where coordination is too expensive: `GCounter`, `PNCounter`, `LWWRegister`, `MVRegister`, `ORSet`.
+- **Built-in Feature Flags** — sticky percentage rollout via SHA-256 bucketing, instant kill switch, per-cohort impression/conversion metrics. AI rollout (multi-armed bandit) deferred to a later phase but the metrics that feed it are collected from day one.
+- **Distributed Rate Limiter** — sliding-window counter algorithm (Cloudflare/Stripe-style) over CRDT counters. Enforced across the cluster with no coordination on the hot path.
+- **Config Store** — append-only history, version-stamped, with live server-push to subscribers via Netty. Subscribers receive `["CFG.NOTIFY", scope, key, value, version, timestamp]` push frames; auto-cleanup on disconnect.
+- **Semantic Cache** — cache LLM responses by meaning, not exact string match. Reduces LLM API costs by 60–80%. *(In progress — Phase 8)*
+- **Redis/Valkey Compatible** — speaks RESP3. Any existing Redis client works. Drop-in replacement; KiraDB-specific commands (`CRDT.*`, `FLAG.*`, `RL.*`, `CFG.*`) work via the same `sendCommand` escape hatch every Redis SDK provides — same path RedisJSON, RedisBloom, and RediSearch use.
+
+> **What works today:** v0.1.0–v0.6.0 are shipped (Phases 1–7 in our development plan). Phase 8 (Semantic Cache) is up next. See [Roadmap](#roadmap) below for status and [docs/services.md](docs/services.md) for working examples of the Phase 7 services.
 
 ---
 
@@ -169,15 +171,15 @@ Optional<String> cached = db.semanticCache().get(userQuery);
 
 | Version | Milestone | Status |
 |---|---|---|
-| v0.1.0 | RESP3 server, GET/SET/DEL, in-memory, Docker | 🔨 In Progress |
-| v0.2.0 | WAL + LSM Tree persistence | 📋 Planned |
-| v0.3.0 | Raft 3-node cluster | 📋 Planned |
-| v0.4.0 | Tiered storage (SSD + S3) | 📋 Planned |
-| v0.5.0 | CRDTs | 📋 Planned |
-| v0.6.0 | Feature flags + Rate limiter + Config store | 📋 Planned |
-| v0.7.0 | Semantic cache | 📋 Planned |
+| v0.1.0 | RESP3 server, GET/SET/DEL/PING, in-memory, Docker | ✅ Done |
+| v0.2.0 | WAL + LSM Tree persistence (Bloom filters, compaction) | ✅ Done |
+| v0.3.0 | Raft 3-node cluster (leader election, log replication) | ✅ Done |
+| v0.4.0 | Adaptive tiered storage (MemCache + LSM, pluggable orchestrator) | ✅ Done |
+| v0.5.0 | CRDTs (GCounter, PNCounter, LWWRegister, MVRegister, ORSet) | ✅ Done |
+| v0.6.0 | Feature flags + distributed rate limiter + config store with live push | ✅ Done |
+| v0.7.0 | Semantic cache (vector embeddings, ANN search) | 🔨 In Progress |
 | v0.8.0 | Dashboard + Java SDK | 📋 Planned |
-| v1.0.0 | Production ready | 📋 Planned |
+| v1.0.0 | Benchmarks, production hardening, full docs | 📋 Planned |
 
 ---
 

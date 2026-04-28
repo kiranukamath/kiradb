@@ -9,6 +9,13 @@ import io.kiradb.core.storage.tier.MemCache;
 import io.kiradb.core.storage.tier.TieredStorageEngine;
 import io.kiradb.crdt.CrdtStore;
 import io.kiradb.server.command.CommandRouter;
+import io.kiradb.server.command.handlers.ConfigHandler;
+import io.kiradb.server.command.handlers.FlagHandler;
+import io.kiradb.server.command.handlers.RateLimitHandler;
+import io.kiradb.server.config.ConfigSubscriptionRegistry;
+import io.kiradb.services.config.ConfigStore;
+import io.kiradb.services.flags.FlagStore;
+import io.kiradb.services.ratelimit.RateLimiterStore;
 import io.kiradb.server.resp3.Resp3Decoder;
 import io.kiradb.server.resp3.Resp3Encoder;
 import io.netty.bootstrap.ServerBootstrap;
@@ -70,6 +77,61 @@ public final class KiraDBServer {
     }
 
     /**
+     * Register all {@code FLAG.*} commands against the router. Kept as a static
+     * helper so tests can wire flag support without instantiating the full server.
+     *
+     * @param router    the command router to register against
+     * @param flagStore the flag store backing all FLAG.* commands
+     */
+    public static void registerFlagCommands(
+            final CommandRouter router, final FlagStore flagStore) {
+        FlagHandler handler = new FlagHandler(flagStore);
+        router.register("FLAG.SET", handler);
+        router.register("FLAG.GET", handler);
+        router.register("FLAG.LIST", handler);
+        router.register("FLAG.KILL", handler);
+        router.register("FLAG.UNKILL", handler);
+        router.register("FLAG.CONVERT", handler);
+        router.register("FLAG.STATS", handler);
+    }
+
+    /**
+     * Register all {@code RL.*} commands against the router.
+     *
+     * @param router the command router to register against
+     * @param store  the rate limiter store backing all RL.* commands
+     */
+    public static void registerRateLimitCommands(
+            final CommandRouter router, final RateLimiterStore store) {
+        RateLimitHandler handler = new RateLimitHandler(store);
+        router.register("RL.ALLOW", handler);
+        router.register("RL.STATUS", handler);
+        router.register("RL.RESET", handler);
+    }
+
+    /**
+     * Register all {@code CFG.*} commands against the router. Wires a fresh
+     * {@link ConfigSubscriptionRegistry} as a listener on the store so writes
+     * propagate to any subscribed channels via server-push.
+     *
+     * @param router      the command router to register against
+     * @param configStore the config store
+     * @return the subscription registry — exposed so tests can inspect subscriber counts
+     */
+    public static ConfigSubscriptionRegistry registerConfigCommands(
+            final CommandRouter router, final ConfigStore configStore) {
+        ConfigSubscriptionRegistry registry = new ConfigSubscriptionRegistry();
+        configStore.addListener(registry);
+        ConfigHandler handler = new ConfigHandler(configStore, registry);
+        router.register("CFG.SET", handler);
+        router.register("CFG.GET", handler);
+        router.register("CFG.HIST", handler);
+        router.register("CFG.WATCH", handler);
+        router.register("CFG.UNWATCH", handler);
+        return registry;
+    }
+
+    /**
      * Main entry point.
      *
      * @param args command-line arguments (unused for now)
@@ -98,6 +160,13 @@ public final class KiraDBServer {
             LOG.info("CrdtStore enabled (nodeId={})", nodeId);
 
             CommandRouter router = new CommandRouter(storage, crdtStore);
+            registerFlagCommands(router, new FlagStore(crdtStore));
+            LOG.info("FlagStore enabled");
+            registerRateLimitCommands(router, new RateLimiterStore(crdtStore));
+            LOG.info("RateLimiterStore enabled");
+            registerConfigCommands(router, new ConfigStore(storage));
+            LOG.info("ConfigStore enabled");
+
             KiraDBChannelHandler handler = new KiraDBChannelHandler(router);
             start(CLIENT_PORT, handler);
         } catch (java.io.IOException e) {
