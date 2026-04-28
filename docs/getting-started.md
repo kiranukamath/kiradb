@@ -191,20 +191,66 @@ BUILD SUCCESSFUL
 
 ---
 
-## Current Limitations (v0.1.0)
+## Current Limitations (as of v0.6.0)
 
 | Limitation | Resolved in |
 |---|---|
-| Data does not persist across restarts | v0.2.0 (WAL + LSM Tree) |
-| Single node only | v0.3.0 (Raft cluster) |
-| No authentication | v0.5.0 |
-| No cluster replication | v0.3.0 |
+| No authentication | Phase 13 hardening backlog |
+| No real cluster gossip wire for CRDTs (single-node persistence works; cross-node merge proven via in-process tests) | Phase 13 hardening backlog |
+| No semantic cache | v0.7.0 (Phase 8 — in progress) |
+| No Java SDK; non-RESP3 commands need `sendCommand` | v0.8.0 (Phase 10) |
+| No production benchmarks | v1.0.0 (Phase 11) |
+
+> Earlier limitations are resolved: data persists via the LSM tree (v0.2.0),
+> a 3-node Raft cluster works (v0.3.0), tiered storage with adaptive promotion
+> ships in v0.4.0, CRDTs in v0.5.0, and feature flags / rate limiter / config
+> store in v0.6.0.
+
+---
+
+## Try the v0.5.0+ commands
+
+Once the server is running, beyond the basic key-value commands you can also:
+
+```
+# CRDT counters (v0.5.0)
+127.0.0.1:6379> CRDT.INCR votes
+(integer) 1
+127.0.0.1:6379> CRDT.INCR votes 10
+(integer) 11
+
+# Feature flags with sticky percentage rollout (v0.6.0)
+127.0.0.1:6379> FLAG.SET dark-mode 1 0.10
+OK
+127.0.0.1:6379> FLAG.GET dark-mode alice
+(integer) 0
+127.0.0.1:6379> FLAG.GET dark-mode bob
+(integer) 1
+
+# Distributed rate limiter (v0.6.0)
+127.0.0.1:6379> RL.ALLOW api user:1 5 60
+(integer) 1
+127.0.0.1:6379> RL.ALLOW api user:1 5 60
+(integer) 1
+# ...after 5 calls, the 6th returns 0 (denied)
+
+# Config store with version history (v0.6.0)
+127.0.0.1:6379> CFG.SET payment-service timeout 3000
+(integer) 1
+127.0.0.1:6379> CFG.SET payment-service timeout 5000
+(integer) 2
+127.0.0.1:6379> CFG.GET payment-service timeout
+"5000"
+```
+
+See [Built-in Services Guide](services.md) for the full guide including
+`CFG.WATCH` server-push notifications.
 
 ---
 
 ## What's Next
 
-- [Architecture](architecture.md) — understand how all the pieces fit together
+- [Built-in Services Guide](services.md) — practical tutorial for FLAG.*, RL.*, CFG.*
+- [Command Reference](commands/reference.md) — full list of all supported commands
+- [CRDTs Deep Dive](internals/crdts.md) — how the conflict-free counters and sets work
 - [Netty Deep Dive](internals/netty.md) — how the networking layer works
-- [Command Reference](commands/reference.md) — full list of supported commands
-- [Contributing](contributing.md) — how to add a new command or feature

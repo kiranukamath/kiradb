@@ -12,6 +12,7 @@ import io.kiradb.server.command.handlers.SetHandler;
 import io.kiradb.server.command.handlers.TtlHandler;
 import io.kiradb.server.resp3.Resp3Value;
 import io.kiradb.core.storage.StorageEngine;
+import io.netty.channel.Channel;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -55,18 +56,34 @@ public final class CommandRouter {
     }
 
     /**
-     * Route a command to its handler and return the response.
+     * Route a command to its handler and return the response. No channel context —
+     * commands that require a channel (e.g. {@code CFG.WATCH}) will return an error.
      *
      * @param command the parsed command
      * @return the RESP3 response to send to the client
      */
     public Resp3Value route(final Command command) {
+        return route(command, null);
+    }
+
+    /**
+     * Route a command to its handler with the originating Netty channel. Channel-aware
+     * handlers (currently only {@link io.kiradb.server.command.handlers.ConfigHandler})
+     * use this to register subscriptions tied to the connection.
+     *
+     * @param command the parsed command
+     * @param channel the originating channel; may be null in non-Netty test paths
+     * @return the RESP3 response
+     */
+    public Resp3Value route(final Command command, final Channel channel) {
         CommandHandler handler = handlers.get(command.name());
         if (handler == null) {
             return Resp3Value.error("ERR unknown command '" + command.name() + "'");
         }
         try {
-            return handler.execute(command, storage);
+            return channel == null
+                    ? handler.execute(command, storage)
+                    : handler.execute(command, storage, channel);
         } catch (NumberFormatException e) {
             return Resp3Value.error("ERR value is not an integer or out of range");
         } catch (Exception e) {

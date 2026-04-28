@@ -69,6 +69,18 @@ final class LWWRegisterTest {
     }
 
     @Test
+    void rapidSameNodeRewritesAllSucceed() {
+        // Regression: two set() calls within the same millisecond from the same
+        // node both must win — the LWW tiebreaker applies between DIFFERENT
+        // nodes, not between successive writes from the same node.
+        LWWRegister r = new LWWRegister("only-node");
+        r.set(b("first"));
+        r.set(b("second"));
+        r.set(b("third"));
+        assertArrayEquals(b("third"), r.get());
+    }
+
+    @Test
     void serializationRoundTrip() {
         LWWRegister r = new LWWRegister("a");
         r.set(b("hi"), 42);
