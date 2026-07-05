@@ -1,3 +1,16 @@
-// kiradb-client: Java SDK for KiraDB
+// kiradb-client: Java SDK for KiraDB.
+//
+// Main source set has ZERO third-party dependencies — the RESP3 client is
+// hand-rolled over java.net.Socket so any Java application can depend on the
+// SDK without a dependency footprint. (The root build adds slf4j-api to every
+// module; the SDK deliberately does not use it.)
+//
+// Test dependencies pull in the real server stack so integration tests boot
+// an actual KiraDB server and talk to it through the SDK itself — no Jedis.
 dependencies {
+    testImplementation project(':kiradb-server')
+    testImplementation project(':kiradb-core')
+    testImplementation project(':kiradb-crdt')
+    testImplementation project(':kiradb-services')
+    testImplementation project(':kiradb-semantic-cache')
 }

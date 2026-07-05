@@ -8,11 +8,20 @@ import io.kiradb.core.storage.lsm.LsmStorageEngine;
 import io.kiradb.core.storage.tier.MemCache;
 import io.kiradb.core.storage.tier.TieredStorageEngine;
 import io.kiradb.crdt.CrdtStore;
+import io.kiradb.semanticcache.SemanticCacheStore;
+import io.kiradb.semanticcache.embedding.EmbeddingProvider;
+import io.kiradb.semanticcache.embedding.LexicalEmbeddingProvider;
+import io.kiradb.semanticcache.embedding.OllamaEmbeddingProvider;
+import io.kiradb.semanticcache.index.FlatCosineIndex;
 import io.kiradb.server.command.CommandRouter;
 import io.kiradb.server.command.handlers.ConfigHandler;
 import io.kiradb.server.command.handlers.FlagHandler;
 import io.kiradb.server.command.handlers.RateLimitHandler;
+import io.kiradb.server.command.handlers.SemanticCacheHandler;
 import io.kiradb.server.config.ConfigSubscriptionRegistry;
+import io.kiradb.server.http.DashboardContext;
+import io.kiradb.server.http.HttpApiServer;
+import io.kiradb.server.metrics.CommandMetrics;
 import io.kiradb.services.config.ConfigStore;
 import io.kiradb.services.flags.FlagStore;
 import io.kiradb.services.ratelimit.RateLimiterStore;
@@ -132,6 +141,40 @@ public final class KiraDBServer {
     }
 
     /**
+     * Register all {@code SC.*} (semantic cache) commands against the router.
+     *
+     * @param router the command router to register against
+     * @param store  the semantic cache store backing all SC.* commands
+     */
+    public static void registerSemanticCacheCommands(
+            final CommandRouter router, final SemanticCacheStore store) {
+        SemanticCacheHandler handler = new SemanticCacheHandler(store);
+        router.register("SC.SET", handler);
+        router.register("SC.GET", handler);
+        router.register("SC.DEL", handler);
+        router.register("SC.STATS", handler);
+    }
+
+    /**
+     * Build the embedding provider from system properties.
+     *
+     * <p>{@code -Dkiradb.sc.provider=lexical} (default) needs no external service;
+     * {@code =ollama} calls the daemon at {@code -Dkiradb.sc.ollama.url}
+     * (default {@code http://localhost:11434}) using model
+     * {@code -Dkiradb.sc.ollama.model} (default {@code nomic-embed-text}).
+     */
+    private static EmbeddingProvider buildEmbeddingProvider() {
+        String provider = System.getProperty("kiradb.sc.provider", "lexical");
+        if ("ollama".equalsIgnoreCase(provider)) {
+            String url = System.getProperty(
+                    "kiradb.sc.ollama.url", OllamaEmbeddingProvider.DEFAULT_BASE_URL);
+            String model = System.getProperty("kiradb.sc.ollama.model", "nomic-embed-text");
+            return new OllamaEmbeddingProvider(url, model);
+        }
+        return new LexicalEmbeddingProvider();
+    }
+
+    /**
      * Main entry point.
      *
      * @param args command-line arguments (unused for now)
@@ -160,12 +203,54 @@ public final class KiraDBServer {
             LOG.info("CrdtStore enabled (nodeId={})", nodeId);
 
             CommandRouter router = new CommandRouter(storage, crdtStore);
-            registerFlagCommands(router, new FlagStore(crdtStore));
+            FlagStore flagStore = new FlagStore(crdtStore);
+            registerFlagCommands(router, flagStore);
             LOG.info("FlagStore enabled");
-            registerRateLimitCommands(router, new RateLimiterStore(crdtStore));
+            RateLimiterStore rateLimiterStore = new RateLimiterStore(crdtStore);
+            registerRateLimitCommands(router, rateLimiterStore);
             LOG.info("RateLimiterStore enabled");
-            registerConfigCommands(router, new ConfigStore(storage));
+            ConfigStore configStore = new ConfigStore(storage);
+            registerConfigCommands(router, configStore);
             LOG.info("ConfigStore enabled");
+
+            EmbeddingProvider embeddingProvider = buildEmbeddingProvider();
+            double scThreshold = Double.parseDouble(
+                    System.getProperty("kiradb.sc.threshold", "0.85"));
+            SemanticCacheStore semanticCache = new SemanticCacheStore(
+                    storage, embeddingProvider, new FlatCosineIndex(), scThreshold);
+            registerSemanticCacheCommands(router, semanticCache);
+            LOG.info("SemanticCache enabled (provider={}, threshold={})",
+                    embeddingProvider.id(), scThreshold);
+
+            CommandMetrics commandMetrics = new CommandMetrics();
+            router.setCommandMetrics(commandMetrics);
+
+            String version = KiraDBServer.class.getPackage().getImplementationVersion();
+            DashboardContext dashboardContext = new DashboardContext(
+                    nodeId,
+                    System.currentTimeMillis(),
+                    version != null ? version : "dev",
+                    CLIENT_PORT,
+                    commandMetrics,
+                    storage instanceof TieredStorageEngine tiered ? tiered : null,
+                    storage,
+                    flagStore,
+                    rateLimiterStore,
+                    configStore,
+                    semanticCache);
+            int httpPort = Integer.getInteger(HttpApiServer.PORT_PROPERTY, HttpApiServer.DEFAULT_PORT);
+            HttpApiServer httpApiServer = new HttpApiServer(httpPort, dashboardContext);
+            Runtime.getRuntime().addShutdownHook(
+                    Thread.ofVirtual().unstarted(httpApiServer::close));
+            Thread.ofVirtual().start(() -> {
+                try {
+                    httpApiServer.start();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    LOG.error("HTTP API failed to start on port {}: {}", httpPort, e.getMessage(), e);
+                }
+            });
 
             KiraDBChannelHandler handler = new KiraDBChannelHandler(router);
             start(CLIENT_PORT, handler);

@@ -13,7 +13,10 @@
 | Run KiraDB in 5 minutes | [Getting Started](getting-started.md) |
 | Use feature flags / rate limiter / config store | [Built-in Services](services.md) |
 | Understand CRDTs (counters, sets, registers) | [CRDTs Deep Dive](internals/crdts.md) |
+| Understand the math behind semantic caching | [Semantic Cache Math](internals/semantic-cache-math.md) |
+| Understand the semantic cache implementation | [Phase 8 — Semantic Cache](internals/phase8-semantic-cache.md) |
 | Understand how Netty works in KiraDB | [Netty Deep Dive](internals/netty.md) |
+| Use the dashboard / HTTP ops API | [Phase 9 — Dashboard & HTTP API](internals/phase9-dashboard.md) |
 | Manually verify Raft cluster behavior | [Raft Manual Test](internals/raft-manual-test.md) |
 | See all supported commands | [Command Reference](commands/reference.md) |
 | Contribute to KiraDB | [CONTRIBUTING.md](../CONTRIBUTING.md) |
@@ -48,8 +51,11 @@ docs/
 │   ├── netty.md                   ← networking layer (Netty event loop, pipeline)
 │   ├── treemap.md                 ← TreeMap behavior used by MemTable
 │   ├── raft-manual-test.md        ← steps to manually verify Raft cluster behaviour
-│   └── crdts.md                   ← state-based CRDTs as implemented in kiradb-crdt
+│   ├── crdts.md                   ← state-based CRDTs as implemented in kiradb-crdt
+│   ├── semantic-cache-math.md     ← embeddings, cosine similarity, ANN search (Phase 8)
+│   ├── phase8-semantic-cache.md   ← semantic cache design + implementation (SC.* commands)
+│   └── phase9-dashboard.md        ← HTTP ops API (port 8080) + React dashboard (Phase 9)
 │
 └── commands/
-    └── reference.md               ← all supported RESP3 commands (incl. CRDT.*, FLAG.*, RL.*, CFG.*)
+    └── reference.md               ← all supported RESP3 commands (incl. CRDT.*, FLAG.*, RL.*, CFG.*, SC.*)
 ```

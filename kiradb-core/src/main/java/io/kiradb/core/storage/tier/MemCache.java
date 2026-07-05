@@ -155,6 +155,15 @@ public final class MemCache {
     }
 
     /**
+     * The configured capacity — the entry count at which eviction triggers.
+     *
+     * @return maximum entry count
+     */
+    public int maxEntries() {
+        return maxEntries;
+    }
+
+    /**
      * Remove all entries from the cache.
      */
     public void clear() {

@@ -13,9 +13,13 @@ dependencies {
     implementation project(':kiradb-raft')
     implementation project(':kiradb-crdt')
     implementation project(':kiradb-services')
+    implementation project(':kiradb-semantic-cache')
 
     // Netty
     implementation 'io.netty:netty-all:4.1.116.Final'
+
+    // Jackson — JSON serialization for the HTTP dashboard API (same version as kiradb-raft)
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
 
     // Jedis — integration tests only
     testImplementation 'redis.clients:jedis:5.2.0'

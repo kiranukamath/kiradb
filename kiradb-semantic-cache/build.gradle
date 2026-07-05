@@ -1,4 +1,9 @@
-// kiradb-semantic-cache: vector embedding cache, ANN search via Weaviate
+// kiradb-semantic-cache: vector embedding cache — pluggable embedding providers
+// (lexical feature-hashing default, Ollama HTTP) + pluggable vector index
+// (flat cosine default; HNSW/Weaviate are future swap-ins behind VectorIndex).
 dependencies {
     implementation project(':kiradb-core')
+
+    // Jackson — JSON parsing for the Ollama embedding provider
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
 }

@@ -171,6 +171,36 @@ public final class TieredStorageEngine implements StorageEngine {
         }
     }
 
+    // ── Observability (read-only, Phase 9 dashboard) ─────────────────────────
+
+    /**
+     * Number of entries currently held in MemCache (Tier 1) — the "hot" key count.
+     *
+     * @return current MemCache entry count
+     */
+    public int memCacheSize() {
+        return memCache.size();
+    }
+
+    /**
+     * Configured MemCache capacity in entries.
+     *
+     * @return maximum MemCache entry count before eviction triggers
+     */
+    public int memCacheMaxEntries() {
+        return memCache.maxEntries();
+    }
+
+    /**
+     * Number of keys currently tracked by the {@link AccessTracker} — the working
+     * set (hot + recently-touched warm keys), not the full dataset.
+     *
+     * @return tracked key count
+     */
+    public int trackedKeys() {
+        return accessTracker.size();
+    }
+
     // ── private ───────────────────────────────────────────────────────────────
 
     /**

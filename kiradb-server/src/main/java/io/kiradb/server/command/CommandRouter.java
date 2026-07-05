@@ -10,6 +10,7 @@ import io.kiradb.server.command.handlers.PingHandler;
 import io.kiradb.server.command.handlers.SetExHandler;
 import io.kiradb.server.command.handlers.SetHandler;
 import io.kiradb.server.command.handlers.TtlHandler;
+import io.kiradb.server.metrics.CommandMetrics;
 import io.kiradb.server.resp3.Resp3Value;
 import io.kiradb.core.storage.StorageEngine;
 import io.netty.channel.Channel;
@@ -33,6 +34,7 @@ public final class CommandRouter {
     private final Map<String, CommandHandler> handlers = new HashMap<>();
     private final StorageEngine storage;
     private final CrdtStore crdtStore;
+    private volatile CommandMetrics metrics;
 
     /**
      * Create a router with no CRDT support. Convenience for tests that don't exercise CRDT commands.
@@ -76,6 +78,37 @@ public final class CommandRouter {
      * @return the RESP3 response
      */
     public Resp3Value route(final Command command, final Channel channel) {
+        CommandMetrics recorder = this.metrics;
+        if (recorder == null) {
+            return dispatch(command, channel);
+        }
+        long startNanos = System.nanoTime();
+        Resp3Value response = dispatch(command, channel);
+        long micros = (System.nanoTime() - startNanos) / 1_000L;
+        recorder.record(command.name(), micros, response instanceof Resp3Value.SimpleError);
+        return response;
+    }
+
+    /**
+     * Attach a metrics recorder. Every subsequent {@link #route} call is timed and
+     * counted per command name. Passing {@code null} (the default) disables metrics
+     * entirely — the hot path then pays zero overhead, which keeps existing tests
+     * and metric-less deployments unaffected.
+     *
+     * @param commandMetrics the recorder, or null to disable
+     */
+    public void setCommandMetrics(final CommandMetrics commandMetrics) {
+        this.metrics = commandMetrics;
+    }
+
+    /**
+     * Look up the handler and execute it, converting exceptions to RESP3 errors.
+     *
+     * @param command the parsed command
+     * @param channel the originating channel; may be null
+     * @return the RESP3 response
+     */
+    private Resp3Value dispatch(final Command command, final Channel channel) {
         CommandHandler handler = handlers.get(command.name());
         if (handler == null) {
             return Resp3Value.error("ERR unknown command '" + command.name() + "'");
