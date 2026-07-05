@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -33,7 +34,9 @@ import java.util.Set;
  *   CRDT.SADD      name member                   — ORSet add
  *   CRDT.SREM      name member                   — ORSet remove
  *   CRDT.SMEMBERS  name                          — ORSet members
- *   CRDT.MERGE     type name base64-state        — gossip merge (type ∈ {GCOUNTER})
+ *   CRDT.MERGE     type name base64-state        — gossip merge
+ *                                                  (type &isin; {GCOUNTER, PNCOUNTER, LWWREGISTER,
+ *                                                  MVREGISTER, ORSET})
  * </pre>
  */
 public final class CrdtHandler implements CommandHandler {
@@ -186,7 +189,7 @@ public final class CrdtHandler implements CommandHandler {
         if (command.arity() != 3) {
             return Resp3Value.wrongArity("CRDT.MERGE");
         }
-        String type = command.argAsString(0).toUpperCase();
+        String type = command.argAsString(0).toUpperCase(Locale.ROOT);
         String name = command.argAsString(1);
         byte[] state;
         try {
@@ -194,10 +197,20 @@ public final class CrdtHandler implements CommandHandler {
         } catch (IllegalArgumentException e) {
             return Resp3Value.error("ERR CRDT.MERGE state must be valid base64");
         }
-        if (!"GCOUNTER".equals(type)) {
-            return Resp3Value.error("ERR unsupported CRDT.MERGE type '" + type + "'");
+        try {
+            switch (type) {
+                case "GCOUNTER" -> crdtStore.mergeGCounter(name, state);
+                case "PNCOUNTER" -> crdtStore.mergePnCounter(name, state);
+                case "LWWREGISTER" -> crdtStore.mergeLwwRegister(name, state);
+                case "MVREGISTER" -> crdtStore.mergeMvRegister(name, state);
+                case "ORSET" -> crdtStore.mergeOrSet(name, state);
+                default -> {
+                    return Resp3Value.error("ERR unsupported CRDT.MERGE type '" + type + "'");
+                }
+            }
+        } catch (RuntimeException e) {
+            return Resp3Value.error("ERR CRDT.MERGE failed to deserialize state: " + e.getMessage());
         }
-        crdtStore.mergeGCounter(name, state);
         return Resp3Value.ok();
     }
 }

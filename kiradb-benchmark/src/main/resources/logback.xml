@@ -1,0 +1,17 @@
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{20} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!--
+        Benchmarks and the load generator drive thousands to millions of commands per run.
+        Server and storage-engine DEBUG/INFO logging at that volume dominates wall-clock time
+        with I/O rather than measuring KiraDB itself, and produces unusable multi-GB log files.
+        WARN-and-above only, so a real error still surfaces.
+    -->
+    <root level="WARN">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

@@ -109,4 +109,79 @@ class AccessTrackerTest {
         tracker.remove("k1".getBytes());
         assertEquals(1, tracker.size());
     }
+
+    // ── hard cap (Phase 13 hardening) ───────────────────────────────────────
+
+    @Test
+    void defaultConstructorIsUnbounded() {
+        AccessTracker tracker = new AccessTracker();
+        assertEquals(-1, tracker.maxTrackedEntries());
+        for (int i = 0; i < 1000; i++) {
+            tracker.recordAccess(("k" + i).getBytes(), 4);
+        }
+        assertEquals(1000, tracker.size());
+    }
+
+    @Test
+    void recommendedMaxTrackedEntriesIsTenXMemCacheCapacity() {
+        assertEquals(1000, AccessTracker.recommendedMaxTrackedEntries(100));
+    }
+
+    @Test
+    void hardCapBoundsTrackerSize() {
+        AccessTracker tracker = new AccessTracker(10);
+        for (int i = 0; i < 100; i++) {
+            tracker.recordAccess(("k" + i).getBytes(), 4);
+        }
+        assertEquals(10, tracker.size(), "tracker must never exceed its hard cap");
+    }
+
+    @Test
+    void hardCapEvictsOldestAccessedEntryNotNewest() throws InterruptedException {
+        AccessTracker tracker = new AccessTracker(3);
+        tracker.recordAccess("a".getBytes(), 1);
+        Thread.sleep(5);
+        tracker.recordAccess("b".getBytes(), 1);
+        Thread.sleep(5);
+        tracker.recordAccess("c".getBytes(), 1);
+        assertEquals(3, tracker.size());
+
+        // Touch "a" again so it's no longer the oldest by lastAccessMs.
+        Thread.sleep(5);
+        tracker.recordAccess("a".getBytes(), 1);
+
+        // Inserting a new key "d" should now evict "b" (oldest untouched), not "a".
+        Thread.sleep(5);
+        tracker.recordAccess("d".getBytes(), 1);
+
+        assertEquals(3, tracker.size());
+        assertTrue(tracker.score("a".getBytes()) > 0.0, "recently re-touched key 'a' must survive");
+        assertTrue(tracker.score("c".getBytes()) > 0.0, "key 'c' must survive");
+        assertTrue(tracker.score("d".getBytes()) > 0.0, "newly inserted key 'd' must be present");
+        assertEquals(0.0, tracker.score("b".getBytes()), "oldest-touched key 'b' must have been evicted");
+    }
+
+    @Test
+    void hardCapDoesNotEvictOnRepeatedTouchOfExistingKey() {
+        AccessTracker tracker = new AccessTracker(2);
+        tracker.recordAccess("a".getBytes(), 1);
+        tracker.recordAccess("b".getBytes(), 1);
+        // Repeated access to an already-tracked key must not trigger eviction —
+        // it's not a new key, so the cap check is skipped.
+        for (int i = 0; i < 10; i++) {
+            tracker.recordAccess("a".getBytes(), 1);
+        }
+        assertEquals(2, tracker.size());
+        assertTrue(tracker.score("b".getBytes()) > 0.0);
+    }
+
+    @Test
+    void constructorRejectsInvalidCap() {
+        try {
+            new AccessTracker(0);
+            throw new AssertionError("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
+    }
 }

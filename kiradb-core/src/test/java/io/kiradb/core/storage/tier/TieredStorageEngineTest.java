@@ -2,6 +2,8 @@ package io.kiradb.core.storage.tier;
 
 import io.kiradb.core.storage.StorageEngine;
 import io.kiradb.core.storage.lsm.LsmStorageEngine;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,6 +15,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -168,5 +171,55 @@ class TieredStorageEngineTest {
             assertTrue(result.isPresent(), "persist-" + i + " must survive a TierManager cycle");
             assertArrayEquals(("v-" + i).getBytes(), result.get());
         }
+    }
+
+    // ── Metrics (Phase 13 hardening) ─────────────────────────────────────────
+
+    @Test
+    void defaultConstructorProvidesANonNullPrivateMeterRegistry() {
+        // 'engine' from setUp() used the (tier2, maxEntries, orchestrator, interval)
+        // constructor, which should default to a private SimpleMeterRegistry.
+        assertNotNull(engine.meterRegistry());
+    }
+
+    @Test
+    void explicitMeterRegistryReceivesMemCacheGauges() throws IOException {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        try (StorageEngine lsm2 = new LsmStorageEngine(dataDir.resolve("metrics-test"));
+             TieredStorageEngine metered = new TieredStorageEngine(
+                     lsm2, 10, new RuleBasedOrchestrator(3.0, 0.5), 60_000L, registry)) {
+
+            assertTrue(registry == metered.meterRegistry());
+
+            metered.put("a".getBytes(), "v".getBytes());
+            metered.get("a".getBytes());       // hit
+            metered.get("missing".getBytes()); // miss
+
+            Gauge sizeGauge = registry.get("kiradb.memcache.size").gauge();
+            assertTrue(sizeGauge.value() >= 1.0);
+
+            Gauge hitsGauge = registry.get("kiradb.memcache.hits").gauge();
+            assertTrue(hitsGauge.value() >= 1.0);
+
+            Gauge missesGauge = registry.get("kiradb.memcache.misses").gauge();
+            assertTrue(missesGauge.value() >= 1.0);
+
+            Gauge trackedGauge = registry.get("kiradb.accesstracker.size").gauge();
+            assertTrue(trackedGauge.value() >= 1.0);
+        }
+    }
+
+    @Test
+    void memCacheHitAndMissCountsAreExposedThroughEngine() {
+        engine.put("k".getBytes(), "v".getBytes());
+        engine.get("k".getBytes());
+        engine.get("nope".getBytes());
+
+        // The engine doesn't expose hit/miss directly (kept on MemCache); verify via
+        // the private registry it defaults to, which is the supported observability path.
+        Gauge hits = engine.meterRegistry().get("kiradb.memcache.hits").gauge();
+        Gauge misses = engine.meterRegistry().get("kiradb.memcache.misses").gauge();
+        assertTrue(hits.value() >= 1.0);
+        assertTrue(misses.value() >= 1.0);
     }
 }

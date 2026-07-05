@@ -265,6 +265,70 @@ public final class CrdtStore {
     }
 
     /**
+     * Merge incoming gossip bytes for a PNCounter and persist.
+     *
+     * @param name  CRDT name
+     * @param bytes serialized PNCounter from a peer
+     */
+    public void mergePnCounter(final String name, final byte[] bytes) {
+        PNCounter incoming = PNCounter.deserialize(localNodeId, bytes);
+        PNCounter local = pnCounter(name);
+        synchronized (local) {
+            local.merge(incoming);
+            byte[] key = (PNCOUNTER_PREFIX + name).getBytes(StandardCharsets.UTF_8);
+            storage.put(key, local.serialize());
+        }
+    }
+
+    /**
+     * Merge incoming gossip bytes for an LWWRegister and persist.
+     *
+     * @param name  CRDT name
+     * @param bytes serialized LWWRegister from a peer
+     */
+    public void mergeLwwRegister(final String name, final byte[] bytes) {
+        LWWRegister incoming = LWWRegister.deserialize(localNodeId, bytes);
+        LWWRegister local = lwwRegister(name);
+        synchronized (local) {
+            local.merge(incoming);
+            byte[] key = (LWW_PREFIX + name).getBytes(StandardCharsets.UTF_8);
+            storage.put(key, local.serialize());
+        }
+    }
+
+    /**
+     * Merge incoming gossip bytes for an MVRegister and persist.
+     *
+     * @param name  CRDT name
+     * @param bytes serialized MVRegister from a peer
+     */
+    public void mergeMvRegister(final String name, final byte[] bytes) {
+        MVRegister incoming = MVRegister.deserialize(localNodeId, bytes);
+        MVRegister local = mvRegister(name);
+        synchronized (local) {
+            local.merge(incoming);
+            byte[] key = (MV_PREFIX + name).getBytes(StandardCharsets.UTF_8);
+            storage.put(key, local.serialize());
+        }
+    }
+
+    /**
+     * Merge incoming gossip bytes for an ORSet and persist.
+     *
+     * @param name  CRDT name
+     * @param bytes serialized ORSet from a peer
+     */
+    public void mergeOrSet(final String name, final byte[] bytes) {
+        ORSet incoming = ORSet.deserialize(bytes);
+        ORSet local = orSet(name);
+        synchronized (local) {
+            local.merge(incoming);
+            byte[] key = (ORSET_PREFIX + name).getBytes(StandardCharsets.UTF_8);
+            storage.put(key, local.serialize());
+        }
+    }
+
+    /**
      * @return the local node id this store stamps onto writes
      */
     public String localNodeId() {

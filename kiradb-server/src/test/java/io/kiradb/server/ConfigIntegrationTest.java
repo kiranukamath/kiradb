@@ -122,6 +122,29 @@ class ConfigIntegrationTest {
     }
 
     @Test
+    void rollbackAppendsOldValueAsNewVersionAndUpdatesLatest() {
+        jedis.sendCommand(new Cmd("CFG.SET"), "svc-r", "k", "v1");
+        jedis.sendCommand(new Cmd("CFG.SET"), "svc-r", "k", "v2");
+        jedis.sendCommand(new Cmd("CFG.SET"), "svc-r", "k", "v3");
+
+        Object rollbackReply = jedis.sendCommand(new Cmd("CFG.ROLLBACK"), "svc-r", "k", "2");
+        assertEquals(4L, rollbackReply);
+
+        Object getReply = jedis.sendCommand(new Cmd("CFG.GET"), "svc-r", "k");
+        assertEquals("v1", SafeEncoder.encode((byte[]) getReply));
+
+        Object histReply = jedis.sendCommand(new Cmd("CFG.HIST"), "svc-r", "k");
+        assertEquals(4, ((List<?>) histReply).size());
+    }
+
+    @Test
+    void rollbackBeyondHistoryReturnsNil() {
+        jedis.sendCommand(new Cmd("CFG.SET"), "svc-r2", "k", "v1");
+        Object reply = jedis.sendCommand(new Cmd("CFG.ROLLBACK"), "svc-r2", "k", "9");
+        assertEquals(null, reply);
+    }
+
+    @Test
     void watchReceivesPushNotificationOnChange() throws Exception {
         // Use a SECOND Jedis connection as the subscriber so the main one stays
         // free to push CFG.SET writes.

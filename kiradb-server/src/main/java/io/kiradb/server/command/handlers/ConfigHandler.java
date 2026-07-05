@@ -21,11 +21,13 @@ import java.util.Optional;
  *
  * <h2>Command summary</h2>
  * <pre>
- *   CFG.SET     scope key value          — append a new version
- *   CFG.GET     scope key                — return latest value, nil if absent
- *   CFG.HIST    scope key                — return all versions as array of maps
- *   CFG.WATCH   scope                    — subscribe this connection to change pushes
- *   CFG.UNWATCH scope                    — unsubscribe this connection
+ *   CFG.SET      scope key value           — append a new version
+ *   CFG.GET      scope key                 — return latest value, nil if absent
+ *   CFG.HIST     scope key                 — return all versions as array of maps
+ *   CFG.ROLLBACK scope key versionsBack    — append the value from versionsBack
+ *                                             versions ago as a new version
+ *   CFG.WATCH    scope                     — subscribe this connection to change pushes
+ *   CFG.UNWATCH  scope                     — unsubscribe this connection
  * </pre>
  *
  * <p>Push frames are emitted by {@link ConfigSubscriptionRegistry} as RESP arrays
@@ -65,6 +67,7 @@ public final class ConfigHandler implements CommandHandler {
             case "CFG.SET" -> handleSet(command);
             case "CFG.GET" -> handleGet(command);
             case "CFG.HIST" -> handleHist(command);
+            case "CFG.ROLLBACK" -> handleRollback(command);
             case "CFG.WATCH" -> handleWatch(command, channel);
             case "CFG.UNWATCH" -> handleUnwatch(command, channel);
             default -> Resp3Value.error("ERR unknown CFG subcommand '" + command.name() + "'");
@@ -77,6 +80,7 @@ public final class ConfigHandler implements CommandHandler {
             case "CFG.SET" -> handleSet(command);
             case "CFG.GET" -> handleGet(command);
             case "CFG.HIST" -> handleHist(command);
+            case "CFG.ROLLBACK" -> handleRollback(command);
             case "CFG.WATCH", "CFG.UNWATCH" -> Resp3Value.error(
                     "ERR " + command.name() + " requires an active connection");
             default -> Resp3Value.error("ERR unknown CFG subcommand '" + command.name() + "'");
@@ -118,6 +122,22 @@ public final class ConfigHandler implements CommandHandler {
             elements.add(new Resp3Value.RespMap(entries));
         }
         return new Resp3Value.RespArray(elements);
+    }
+
+    private Resp3Value handleRollback(final Command command) {
+        if (command.arity() != 3) {
+            return Resp3Value.wrongArity("CFG.ROLLBACK");
+        }
+        int versionsBack;
+        try {
+            versionsBack = Integer.parseInt(command.argAsString(2));
+        } catch (NumberFormatException e) {
+            return Resp3Value.error("ERR versionsBack must be an integer");
+        }
+        Optional<ConfigVersion> v = store.rollback(
+                command.argAsString(0), command.argAsString(1), versionsBack);
+        return v.<Resp3Value>map(ver -> (Resp3Value) new Resp3Value.RespInteger(ver.versionNumber()))
+                .orElseGet(Resp3Value::nil);
     }
 
     private Resp3Value handleWatch(final Command command, final Channel channel) {

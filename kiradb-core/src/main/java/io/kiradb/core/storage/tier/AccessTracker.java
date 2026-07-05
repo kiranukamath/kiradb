@@ -21,10 +21,55 @@ import java.util.concurrent.ConcurrentHashMap;
  * two hours ago scores lower than one accessed 5 times 10 seconds ago —
  * recent access matters more than historical frequency.
  *
+ * <h2>Hard cap (Phase 13 hardening)</h2>
+ * <p>The only backstop against unbounded growth used to be the periodic
+ * {@code MIN_TRACK_SCORE} purge run by {@link TierManager} every 5 minutes.
+ * A pathological access pattern — a full-keyspace scan that touches every key
+ * exactly once and never returns — can balloon the tracked-key count between
+ * purge cycles, since every touched key gets an entry with a nonzero score
+ * and won't be purged until it decays below the threshold. {@code maxTrackedEntries}
+ * puts a hard ceiling on this: once at capacity, inserting a new key evicts the
+ * tracked entry with the oldest {@code lastAccessMs} (the "coldest by recency"
+ * entry) to make room. Recommended default is {@code 10 * MemCache.maxEntries}
+ * (see {@link #recommendedMaxTrackedEntries(int)}) — enough headroom that the
+ * warm/tracked-but-not-hot population (per CLAUDE.md's Phase 5 sizing notes)
+ * fits comfortably, while still bounding worst-case memory.
+ *
+ * <p><b>Why O(n) scan-for-oldest instead of a min-heap:</b> eviction here only
+ * fires when the tracker is completely full, which — given the generous 10x
+ * default headroom — should be rare relative to the purge cycle in realistic
+ * workloads. A linear scan over the tracked-key map is the simplest correct
+ * implementation and avoids maintaining a second data structure (a heap keyed
+ * on {@code lastAccessMs}) that itself needs updates on every access. If
+ * profiling ever shows this eviction path running hot enough to matter, the
+ * documented upgrade is a min-heap ordered by {@code lastAccessMs} with lazy
+ * deletion (O(log n) eviction, O(log n) touch) — deferred until there's a
+ * concrete workload that hits this path often enough to need it.
+ *
  * <h2>Thread safety</h2>
  * <p>All methods are thread-safe.  Uses {@link ConcurrentHashMap} internally.
  */
 public final class AccessTracker {
+
+    /** Sentinel meaning "no hard cap" — used by the default (no-arg) constructor. */
+    private static final int UNBOUNDED = -1;
+
+    /**
+     * Multiplier applied to a MemCache's {@code maxEntries} to compute the
+     * recommended {@code maxTrackedEntries}, per the Phase 13 backlog note.
+     */
+    private static final int RECOMMENDED_MULTIPLIER = 10;
+
+    /**
+     * Compute the recommended {@code maxTrackedEntries} for a MemCache of the
+     * given entry-count capacity: {@code 10 * memCacheMaxEntries}.
+     *
+     * @param memCacheMaxEntries the MemCache's {@code maxEntries}
+     * @return recommended hard cap for a paired AccessTracker
+     */
+    public static int recommendedMaxTrackedEntries(final int memCacheMaxEntries) {
+        return RECOMMENDED_MULTIPLIER * memCacheMaxEntries;
+    }
 
     /**
      * Internal per-key mutable state.
@@ -62,15 +107,52 @@ public final class AccessTracker {
 
     private final ConcurrentHashMap<ByteKey, KeyStats> data = new ConcurrentHashMap<>();
 
+    /** Hard cap on tracked entries, or {@link #UNBOUNDED} for no cap. */
+    private final int maxTrackedEntries;
+
+    /**
+     * Create an AccessTracker with no hard cap on tracked entries.
+     *
+     * <p>Prefer {@link #AccessTracker(int)} in production — an unbounded
+     * tracker relies entirely on the periodic purge cycle as a backstop
+     * against pathological scan workloads (see class Javadoc).
+     */
+    public AccessTracker() {
+        this(UNBOUNDED);
+    }
+
+    /**
+     * Create an AccessTracker with a hard cap on the number of tracked entries.
+     *
+     * @param maxTrackedEntries maximum distinct keys to track before the oldest
+     *                          (by {@code lastAccessMs}) is evicted to make room;
+     *                          see {@link #recommendedMaxTrackedEntries(int)} for
+     *                          the suggested default sizing
+     */
+    public AccessTracker(final int maxTrackedEntries) {
+        if (maxTrackedEntries < 1 && maxTrackedEntries != UNBOUNDED) {
+            throw new IllegalArgumentException("maxTrackedEntries must be >= 1");
+        }
+        this.maxTrackedEntries = maxTrackedEntries;
+    }
+
     /**
      * Record one access for a key.
      * Creates a new entry if this is the first time the key has been seen.
+     * If the tracker is at its hard cap and this is a new key, the tracked
+     * entry with the oldest {@code lastAccessMs} is evicted first.
      *
      * @param key          the accessed key (never null)
      * @param keySizeBytes approximate size of the key in bytes
      */
     public void recordAccess(final byte[] key, final int keySizeBytes) {
-        data.compute(new ByteKey(key), (k, existing) -> {
+        ByteKey byteKey = new ByteKey(key);
+        if (maxTrackedEntries != UNBOUNDED
+                && data.size() >= maxTrackedEntries
+                && !data.containsKey(byteKey)) {
+            evictOldest();
+        }
+        data.compute(byteKey, (k, existing) -> {
             if (existing == null) {
                 return new KeyStats(keySizeBytes);
             }
@@ -79,6 +161,33 @@ public final class AccessTracker {
             existing.keySizeBytes = keySizeBytes;
             return existing;
         });
+    }
+
+    /**
+     * @return the configured hard cap on tracked entries, or {@code -1} if unbounded
+     */
+    public int maxTrackedEntries() {
+        return maxTrackedEntries;
+    }
+
+    /**
+     * Evict the tracked entry with the oldest {@code lastAccessMs}.
+     * O(n) scan — see class Javadoc for why this is an acceptable trade-off
+     * versus maintaining a min-heap.
+     */
+    private void evictOldest() {
+        ByteKey oldestKey = null;
+        long oldestAccessMs = Long.MAX_VALUE;
+        for (var entry : data.entrySet()) {
+            long lastAccessMs = entry.getValue().lastAccessMs;
+            if (lastAccessMs < oldestAccessMs) {
+                oldestAccessMs = lastAccessMs;
+                oldestKey = entry.getKey();
+            }
+        }
+        if (oldestKey != null) {
+            data.remove(oldestKey);
+        }
     }
 
     /**

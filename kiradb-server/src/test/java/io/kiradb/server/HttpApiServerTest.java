@@ -203,6 +203,28 @@ class HttpApiServerTest {
     }
 
     @Test
+    void metricsEndpointExposesMemCacheAndAccessTrackerGauges() throws Exception {
+        router.route(cmd("SET", "metrics-endpoint-probe", "v"));
+        router.route(cmd("GET", "metrics-endpoint-probe"));
+
+        JsonNode json = get("/api/metrics", 200);
+        assertTrue(json.isArray());
+
+        JsonNode sizeMeter = findByField(json, "name", "kiradb.memcache.size");
+        assertNotNull(sizeMeter, "kiradb.memcache.size should be published");
+        assertTrue(sizeMeter.get("measurements").isArray());
+        assertTrue(sizeMeter.get("measurements").size() >= 1);
+
+        assertNotNull(findByField(json, "name", "kiradb.memcache.hits"));
+        assertNotNull(findByField(json, "name", "kiradb.memcache.misses"));
+        assertNotNull(findByField(json, "name", "kiradb.memcache.evictions"));
+        assertNotNull(findByField(json, "name", "kiradb.accesstracker.size"));
+        assertNotNull(findByField(json, "name", "kiradb.tiermanager.promotions"));
+        assertNotNull(findByField(json, "name", "kiradb.tiermanager.evictions"));
+        assertNotNull(findByField(json, "name", "kiradb.tiermanager.purges"));
+    }
+
+    @Test
     void unknownPathReturns404Json() throws Exception {
         JsonNode json = get("/api/nope", 404);
         assertTrue(json.get("error").asText().contains("/api/nope"));

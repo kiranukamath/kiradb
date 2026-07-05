@@ -135,6 +135,7 @@ public final class KiraDBServer {
         router.register("CFG.SET", handler);
         router.register("CFG.GET", handler);
         router.register("CFG.HIST", handler);
+        router.register("CFG.ROLLBACK", handler);
         router.register("CFG.WATCH", handler);
         router.register("CFG.UNWATCH", handler);
         return registry;

@@ -120,6 +120,25 @@ class RateLimitIntegrationTest {
     }
 
     @Test
+    void tokenAlgorithmBurstsThenThrottles() {
+        for (int i = 1; i <= 5; i++) {
+            Object reply = jedis.sendCommand(
+                    new Cmd("RL.ALLOW"), "test-token", "user:1", "5", "60", "TOKEN");
+            assertEquals(1L, reply, "burst request " + i + " should be allowed");
+        }
+        Object sixth = jedis.sendCommand(
+                new Cmd("RL.ALLOW"), "test-token", "user:1", "5", "60", "TOKEN");
+        assertEquals(0L, sixth, "request beyond burst capacity should be throttled");
+    }
+
+    @Test
+    void unknownAlgorithmReturnsError() {
+        assertThrows(redis.clients.jedis.exceptions.JedisDataException.class,
+                () -> jedis.sendCommand(
+                        new Cmd("RL.ALLOW"), "test-f", "user:1", "5", "60", "BOGUS"));
+    }
+
+    @Test
     void resetReturnsExplicitError() {
         // RL.RESET is intentionally unsupported (GCounter is grow-only).
         // Server returns -ERR; Jedis surfaces this as a JedisDataException.

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -46,6 +47,77 @@ final class CrdtStoreTest {
         // And the merge persisted: a fresh store sees the merged total.
         CrdtStore reload = new CrdtStore(storage, "local");
         assertEquals(11, reload.gCounterValue("votes"));
+    }
+
+    @Test
+    void mergePnCounterAcceptsRemoteStateAndPersists() {
+        FakeStorage storage = new FakeStorage();
+        CrdtStore local = new CrdtStore(storage, "local");
+        local.pnCounterAdd("balance", 100);
+
+        PNCounter remote = new PNCounter("peer");
+        remote.add(50);
+        remote.add(-20);
+        local.mergePnCounter("balance", remote.serialize());
+
+        assertEquals(130, local.pnCounterValue("balance"));
+
+        CrdtStore reload = new CrdtStore(storage, "local");
+        assertEquals(130, reload.pnCounterValue("balance"));
+    }
+
+    @Test
+    void mergeLwwRegisterAcceptsRemoteStateAndPersists() {
+        FakeStorage storage = new FakeStorage();
+        CrdtStore local = new CrdtStore(storage, "local");
+        local.lwwSet("flag", "local-value".getBytes(StandardCharsets.UTF_8));
+
+        LWWRegister remote = new LWWRegister("peer");
+        remote.set("peer-value".getBytes(StandardCharsets.UTF_8), System.currentTimeMillis() + 60_000L);
+        local.mergeLwwRegister("flag", remote.serialize());
+
+        assertArrayEquals("peer-value".getBytes(StandardCharsets.UTF_8), local.lwwGet("flag"));
+
+        CrdtStore reload = new CrdtStore(storage, "local");
+        assertArrayEquals("peer-value".getBytes(StandardCharsets.UTF_8), reload.lwwGet("flag"));
+    }
+
+    @Test
+    void mergeMvRegisterAcceptsRemoteStateAndPersists() {
+        // NOTE: unlike lwwSet/orSetAdd/pnCounterAdd, CrdtStore has no persist-on-write
+        // helper for MVRegister mutations today (a pre-existing gap, not introduced by
+        // this change) — CrdtHandler.handleMvSet mutates the in-memory instance directly.
+        // mergeMvRegister DOES persist (see below), so we drive the "before" state via
+        // the in-memory register directly rather than relying on a reload to see it.
+        FakeStorage storage = new FakeStorage();
+        CrdtStore local = new CrdtStore(storage, "local");
+        local.mvRegister("doc").set("local-edit".getBytes(StandardCharsets.UTF_8));
+
+        MVRegister remote = new MVRegister("peer");
+        remote.set("peer-edit".getBytes(StandardCharsets.UTF_8));
+        local.mergeMvRegister("doc", remote.serialize());
+
+        assertEquals(2, local.mvRegister("doc").values().size());
+
+        // mergeMvRegister's own persistence is what a reload observes.
+        CrdtStore reload = new CrdtStore(storage, "local");
+        assertEquals(2, reload.mvRegister("doc").values().size());
+    }
+
+    @Test
+    void mergeOrSetAcceptsRemoteStateAndPersists() {
+        FakeStorage storage = new FakeStorage();
+        CrdtStore local = new CrdtStore(storage, "local");
+        local.orSetAdd("members", "alice");
+
+        ORSet remote = new ORSet();
+        remote.add("bob");
+        local.mergeOrSet("members", remote.serialize());
+
+        assertEquals(Set.of("alice", "bob"), local.orSet("members").elements());
+
+        CrdtStore reload = new CrdtStore(storage, "local");
+        assertEquals(Set.of("alice", "bob"), reload.orSet("members").elements());
     }
 
     @Test

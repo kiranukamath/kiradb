@@ -9,6 +9,7 @@ import io.kiradb.server.metrics.CommandMetric;
 import io.kiradb.services.config.ConfigVersion;
 import io.kiradb.services.flags.FeatureFlag;
 import io.kiradb.services.flags.FlagStats;
+import io.micrometer.core.instrument.Meter;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
@@ -70,6 +71,9 @@ import java.util.Optional;
  *   /api/ratelimit       rate limiter info (enumeration not supported — see Javadoc)
  *   /api/config/scopes   all (scope, key) config entries with latest version
  *   /api/semantic-cache  hit/miss/entries/tokens-saved + hit rate + threshold
+ *   /api/metrics         Micrometer meters registered on the tiered engine's registry
+ *                        (Phase 13 hardening; JSON, not Prometheus text format — see
+ *                        {@link #metrics()} Javadoc for why)
  * </pre>
  */
 public final class HttpApiServer implements AutoCloseable {
@@ -217,6 +221,7 @@ public final class HttpApiServer implements AutoCloseable {
             case "/api/ratelimit" -> mapper.writeValueAsString(rateLimit());
             case "/api/config/scopes" -> mapper.writeValueAsString(configScopes());
             case "/api/semantic-cache" -> mapper.writeValueAsString(semanticCache());
+            case "/api/metrics" -> mapper.writeValueAsString(metrics());
             default -> null;
         };
     }
@@ -373,5 +378,46 @@ public final class HttpApiServer implements AutoCloseable {
         node.put("hitRate", lookups == 0 ? 0.0 : (double) stats.hits() / lookups);
         node.put("defaultThreshold", context.semanticCache().defaultThreshold());
         return node;
+    }
+
+    /**
+     * Dump every meter currently registered on the tiered engine's
+     * {@link io.micrometer.core.instrument.MeterRegistry} (Phase 13 hardening).
+     *
+     * <h2>Why JSON instead of Prometheus text format</h2>
+     * The canonical way to expose Micrometer metrics to Prometheus is the
+     * {@code micrometer-registry-prometheus} module, which formats meters as
+     * Prometheus's {@code # HELP}/{@code # TYPE}/sample text exposition format.
+     * That's a real dependency (pulls in Prometheus's simpleclient) for a
+     * dashboard endpoint that today has exactly one consumer: this project's own
+     * React dashboard, which already speaks JSON to every other endpoint here.
+     * Rather than add a second wire format for one endpoint, this dumps each
+     * meter's id and measurements as plain JSON — consistent with the rest of
+     * the API, and trivially convertible to Prometheus text format later by
+     * swapping the registry type (the meters themselves don't change) if an
+     * external Prometheus scrape target is ever needed.
+     *
+     * @return array of {@code {name, tags, measurements: [{statistic, value}]}}
+     */
+    private ArrayNode metrics() {
+        ArrayNode array = mapper.createArrayNode();
+        if (context.tieredStorage() == null) {
+            return array;
+        }
+        for (Meter meter : context.tieredStorage().meterRegistry().getMeters()) {
+            ObjectNode node = mapper.createObjectNode();
+            node.put("name", meter.getId().getName());
+            ArrayNode tags = mapper.createArrayNode();
+            meter.getId().getTags().forEach(tag ->
+                    tags.add(mapper.createObjectNode().put(tag.getKey(), tag.getValue())));
+            node.set("tags", tags);
+            ArrayNode measurements = mapper.createArrayNode();
+            meter.measure().forEach(m -> measurements.add(mapper.createObjectNode()
+                    .put("statistic", m.getStatistic().name())
+                    .put("value", m.getValue())));
+            node.set("measurements", measurements);
+            array.add(node);
+        }
+        return array;
     }
 }

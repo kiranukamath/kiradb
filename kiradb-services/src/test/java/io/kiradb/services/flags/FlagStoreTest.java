@@ -118,6 +118,37 @@ final class FlagStoreTest {
         assertEquals("zeta", names.get(2));
     }
 
+    @Test
+    void listFlagsSurvivesRestartEvenForUntouchedFlags() {
+        // Simulate the underlying storage engine and CrdtStore persisting across a restart,
+        // by reusing the same FakeStorage backing but constructing brand-new CrdtStore and
+        // FlagStore instances — nothing in-memory is carried over on purpose.
+        FakeStorage storage = new FakeStorage();
+        CrdtStore firstNodeView = new CrdtStore(storage, "node1");
+        FlagStore before = new FlagStore(firstNodeView);
+        before.set(FeatureFlag.fullyEnabled("zeta"));
+        before.set(FeatureFlag.fullyEnabled("alpha"));
+        before.set(FeatureFlag.fullyEnabled("beta"));
+
+        // "Restart": fresh CrdtStore + FlagStore instances over the same persisted bytes.
+        CrdtStore afterRestartView = new CrdtStore(storage, "node1");
+        FlagStore after = new FlagStore(afterRestartView);
+
+        var names = after.listFlags();
+        assertEquals(3, names.size());
+        assertEquals("alpha", names.get(0));
+        assertEquals("beta", names.get(1));
+        assertEquals("zeta", names.get(2));
+    }
+
+    @Test
+    void reSettingAnExistingFlagDoesNotDuplicateIndexEntries() {
+        flags.set(FeatureFlag.fullyEnabled("dark-mode"));
+        flags.set(new FeatureFlag("dark-mode", false, 0.5));
+        flags.set(new FeatureFlag("dark-mode", true, 1.0));
+        assertEquals(1, flags.listFlags().size());
+    }
+
     /** Minimal in-memory StorageEngine for tests — same shape as the one in CrdtStoreTest. */
     private static final class FakeStorage implements StorageEngine {
         private final ConcurrentHashMap<String, byte[]> store = new ConcurrentHashMap<>();
