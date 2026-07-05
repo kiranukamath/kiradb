@@ -24,6 +24,7 @@
 | See all supported commands | [Command Reference](commands/reference.md) |
 | Understand Docker packaging, go-live prep, and open production gaps | [Phase 12 — Documentation & Go-Live](internals/phase12-golive.md) |
 | Understand the Phase 13 hardening backlog work (flag index, CFG.ROLLBACK, byte-based MemCache, AccessTracker cap, token bucket, CRDT.MERGE, metrics) | [Phase 13 — Deferred Hardening](internals/phase13-hardening.md) |
+| Contribute to KiraDB | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | See version-by-version history | [CHANGELOG.md](../CHANGELOG.md) |
 
 ---
