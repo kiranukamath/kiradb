@@ -136,6 +136,53 @@ public final class ConfigStore {
         return loadVersions(storageKey(scope, key));
     }
 
+    /**
+     * Roll back {@code (scope, key)} to the value it held {@code versionsBack}
+     * versions ago, by appending that old value as a brand-new version.
+     *
+     * <p>This is intentionally non-destructive: history is append-only (see class
+     * Javadoc), so a rollback is itself a new audit-trail entry rather than a
+     * deletion or rewrite of prior versions. A rollback of {@code versionsBack = 1}
+     * restores the value from immediately before the current one; {@code 0} would
+     * "roll back" to the current value itself (a no-op value-wise, but it still
+     * appends a new version — callers wanting a true no-op should check first).
+     *
+     * @param scope        the scope
+     * @param key          the key
+     * @param versionsBack how many versions back to read from (must be {@code >= 0}
+     *                     and no greater than the number of versions currently on
+     *                     record, i.e. it must address an existing version)
+     * @return the newly appended version, or empty if {@code versionsBack} does not
+     *         address an existing version (including the case where the key has
+     *         no history at all)
+     */
+    public Optional<ConfigVersion> rollback(
+            final String scope, final String key, final int versionsBack) {
+        Objects.requireNonNull(scope, "scope");
+        Objects.requireNonNull(key, "key");
+        if (versionsBack < 0) {
+            return Optional.empty();
+        }
+
+        byte[] storageKey = storageKey(scope, key);
+        synchronized (this) {  // serialize with concurrent set()/rollback() on the same record
+            List<ConfigVersion> versions = new ArrayList<>(loadVersions(storageKey));
+            int targetIndex = versions.size() - 1 - versionsBack;
+            if (targetIndex < 0 || targetIndex >= versions.size()) {
+                return Optional.empty();
+            }
+            String targetValue = versions.get(targetIndex).value();
+
+            long nextNumber = versions.get(versions.size() - 1).versionNumber() + 1;
+            ConfigVersion next = new ConfigVersion(
+                    nextNumber, System.currentTimeMillis(), targetValue);
+            versions.add(next);
+            storage.put(storageKey, serialize(versions));
+            notifyListeners(new ConfigChange(scope, key, next));
+            return Optional.of(next);
+        }
+    }
+
     private void notifyListeners(final ConfigChange change) {
         for (ConfigChangeListener listener : listeners) {
             try {

@@ -1,10 +1,3 @@
-# kiradb
-> A distributed database with adaptive tiered storage (memory → SSD → S3),
-> built-in feature flags, rate limiting, config management,
-> and semantic caching for AI workloads. Redis/Valkey protocol compatible.
-
-⚠️ Status: Active Development — not production ready yet
-
 # KiraDB
 
 > **Ki**·**ra**·DB — *Key-value Intelligence, Replication & Availability*
@@ -13,6 +6,23 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/java-25-orange.svg)](https://openjdk.org/)
 [![Status](https://img.shields.io/badge/status-active%20development-yellow.svg)]()
+
+<!--
+  TODO once published (do not add these badges until the artifact actually
+  exists — a badge pointing at a 404 is worse than no badge):
+  - Docker Hub pulls/version:   https://hub.docker.com/r/kiradb/kiradb
+  - Maven/GitHub Packages:      Java SDK (kiradb-client) publish target
+  See docs/internals/phase12-golive.md "Kiran must do this" list for the
+  exact commands to run before adding these.
+-->
+
+⚠️ **Status: Active Development — not production ready yet.** Single-node
+today; Raft consensus is implemented and tested at the module level but is
+**not yet wired into the server's bootstrap** (`KiraDBServer.main()` starts
+one standalone node — no peer discovery, no cluster). See
+[docs/deployment.md](docs/deployment.md) for the honest current state and
+[docs/internals/phase12-golive.md](docs/internals/phase12-golive.md) for the
+gap and how to close it.
 
 **KiraDB** is an open-source distributed database built from the ground up in Java.
 
@@ -51,27 +61,51 @@ A distributed database with:
 - **Built-in Feature Flags** — sticky percentage rollout via SHA-256 bucketing, instant kill switch, per-cohort impression/conversion metrics. AI rollout (multi-armed bandit) deferred to a later phase but the metrics that feed it are collected from day one.
 - **Distributed Rate Limiter** — sliding-window counter algorithm (Cloudflare/Stripe-style) over CRDT counters. Enforced across the cluster with no coordination on the hot path.
 - **Config Store** — append-only history, version-stamped, with live server-push to subscribers via Netty. Subscribers receive `["CFG.NOTIFY", scope, key, value, version, timestamp]` push frames; auto-cleanup on disconnect.
-- **Semantic Cache** — cache LLM responses by meaning, not exact string match. Reduces LLM API costs by 60–80%. *(In progress — Phase 8)*
-- **Redis/Valkey Compatible** — speaks RESP3. Any existing Redis client works. Drop-in replacement; KiraDB-specific commands (`CRDT.*`, `FLAG.*`, `RL.*`, `CFG.*`) work via the same `sendCommand` escape hatch every Redis SDK provides — same path RedisJSON, RedisBloom, and RediSearch use.
+- **Semantic Cache** — cache LLM responses by meaning, not exact string match via vector embeddings + cosine-similarity ANN search. Pluggable embedding provider (local lexical hashing by default, Ollama for real embeddings). `SC.SET` / `SC.GET` / `SC.DEL` / `SC.STATS`.
+- **Dashboard** — React + Vite operator UI (cluster overview, storage tiers, live command throughput, flags, rate limiters, config history, semantic cache stats) backed by a read-only HTTP/JSON API on port 8080.
+- **Java SDK** — hand-rolled RESP3 client (`kiradb-client`, zero dependencies) with connection pooling and fluent facades: `db.flags()`, `db.rateLimiter()`, `db.config()`, `db.semanticCache()`.
+- **Redis/Valkey Compatible** — speaks RESP3. Any existing Redis client works. Drop-in replacement; KiraDB-specific commands (`CRDT.*`, `FLAG.*`, `RL.*`, `CFG.*`, `SC.*`) work via the same `sendCommand` escape hatch every Redis SDK provides — same path RedisJSON, RedisBloom, and RediSearch use.
 
-> **What works today:** v0.1.0–v0.6.0 are shipped (Phases 1–7 in our development plan). Phase 8 (Semantic Cache) is up next. See [Roadmap](#roadmap) below for status and [docs/services.md](docs/services.md) for working examples of the Phase 7 services.
+> **What works today:** v0.1.0–v0.7.0 are shipped (Phases 1–11 of the development plan): RESP3 server, LSM storage engine, Raft consensus (module-level, not yet wired into server bootstrap — see below), tiered storage, CRDTs, feature flags/rate limiter/config store, semantic cache, dashboard, Java SDK, and a first benchmark pass. See [Roadmap](#roadmap) for the version-by-version breakdown, [BENCHMARKS.md](BENCHMARKS.md) for real measured numbers, and [docs/deployment.md](docs/deployment.md) for exactly what "cluster" does and doesn't mean today.
 
 ---
 
 ## Quick Start
 
+### Docker (single node)
+
 ```bash
-# Single node
+docker build -f docker/Dockerfile -t kiradb/kiradb:latest .
 docker run -p 6379:6379 -p 8080:8080 kiradb/kiradb:latest
 
 # Connect with any Redis client
 redis-cli -p 6379 SET hello world
 redis-cli -p 6379 GET hello
 
-# 3-node cluster
-curl -O https://raw.githubusercontent.com/kiranukamath/kiradb/main/docker/docker-compose.yml
-docker compose up
+# Dashboard JSON API
+curl http://localhost:8080/api/overview
 ```
+
+> A published `kiradb/kiradb` image on Docker Hub is a go-live TODO — build
+> locally from the Dockerfile until then (see
+> [docs/internals/phase12-golive.md](docs/internals/phase12-golive.md)).
+
+```bash
+# Or via Docker Compose (same single-node image, add a bind-mounted volume)
+docker compose -f docker/docker-compose.yml up
+```
+
+### From source (local dev)
+
+```bash
+git clone https://github.com/kiranukamath/kiradb.git
+cd kiradb
+./gradlew build
+./gradlew :kiradb-server:run
+# or: ./gradlew :kiradb-server:installDist && ./kiradb-server/build/install/kiradb-server/bin/kiradb-server
+```
+
+See [Getting Started](docs/getting-started.md) for the full 5-minute walkthrough.
 
 ---
 
@@ -177,9 +211,26 @@ Optional<String> cached = db.semanticCache().get(userQuery);
 | v0.4.0 | Adaptive tiered storage (MemCache + LSM, pluggable orchestrator) | ✅ Done |
 | v0.5.0 | CRDTs (GCounter, PNCounter, LWWRegister, MVRegister, ORSet) | ✅ Done |
 | v0.6.0 | Feature flags + distributed rate limiter + config store with live push | ✅ Done |
-| v0.7.0 | Semantic cache (vector embeddings, ANN search) | 🔨 In Progress |
-| v0.8.0 | Dashboard + Java SDK | 📋 Planned |
-| v1.0.0 | Benchmarks, production hardening, full docs | 📋 Planned |
+| v0.7.0 | Semantic cache (vector embeddings, ANN search) | ✅ Done |
+| v0.8.0 | Dashboard + Java SDK | ✅ Done |
+| v0.9.0 | Benchmarks (JMH + load generator, honest Redis comparison) | ✅ Done |
+| v1.0.0 | Docs, Docker/Compose packaging, production hardening pass | 🔨 In Progress (Phase 12) |
+| v1.x | Deferred hardening backlog + AI rollout bandit (trigger-driven) | 📋 Planned |
+
+See [CHANGELOG.md](CHANGELOG.md) for the detailed per-phase history and [docs/index.md](docs/index.md) for the full documentation map.
+
+---
+
+## Documentation
+
+| | |
+|---|---|
+| [docs/index.md](docs/index.md) | Documentation home — where to start |
+| [docs/getting-started.md](docs/getting-started.md) | Build and run in 5 minutes |
+| [docs/deployment.md](docs/deployment.md) | Docker/Compose, JVM tuning, honest multi-node status |
+| [docs/commands/reference.md](docs/commands/reference.md) | Every RESP3 command KiraDB supports |
+| [BENCHMARKS.md](BENCHMARKS.md) | Real measured throughput/latency numbers vs. Redis |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
 
 ---
 
@@ -196,12 +247,13 @@ Good first issues are labeled [`good first issue`](https://github.com/kiranukama
 
 ## Built With
 
-- **Java 25** — virtual threads, records, sealed classes
-- **Netty** — non-blocking TCP server
-- **RocksDB** — embedded storage engine
-- **Raft** — consensus algorithm (implemented from scratch)
-- **Weaviate** — vector search for semantic cache
-- **OpenTelemetry** — distributed tracing
+- **Java 25** — virtual threads, records, sealed classes, `--enable-preview`
+- **Netty** — non-blocking TCP server (RESP3) and HTTP server (dashboard API)
+- **Custom LSM Tree** — WAL + MemTable + SSTables + Bloom filters + compaction, built from scratch
+- **Raft** — consensus algorithm implemented from scratch (module-complete; not yet wired into server bootstrap, see [docs/deployment.md](docs/deployment.md))
+- **Vector embeddings + flat cosine ANN** — semantic cache, pluggable embedding provider (local lexical / Ollama)
+- **React + Vite** — operator dashboard
+- **JMH** — microbenchmarks (see [BENCHMARKS.md](BENCHMARKS.md))
 
 ---
 

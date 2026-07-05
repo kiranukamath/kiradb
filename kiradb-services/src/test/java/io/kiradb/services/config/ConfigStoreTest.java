@@ -124,6 +124,52 @@ final class ConfigStoreTest {
     }
 
     @Test
+    void rollbackAppendsOldValueAsNewVersion() {
+        configs.set("svc", "k", "v1");
+        configs.set("svc", "k", "v2");
+        configs.set("svc", "k", "v3");
+
+        ConfigVersion rolled = configs.rollback("svc", "k", 2).orElseThrow();
+        // versionsBack=2 from v3 (index 2): index 2-2=0 -> "v1"
+        assertEquals("v1", rolled.value());
+        assertEquals(4L, rolled.versionNumber());
+
+        assertEquals("v1", configs.get("svc", "k").orElseThrow());
+        List<ConfigVersion> hist = configs.history("svc", "k");
+        assertEquals(4, hist.size());
+        assertEquals("v1", hist.get(3).value());
+    }
+
+    @Test
+    void rollbackZeroVersionsBackReappliesCurrentValue() {
+        configs.set("svc", "k", "v1");
+        configs.set("svc", "k", "v2");
+        ConfigVersion rolled = configs.rollback("svc", "k", 0).orElseThrow();
+        assertEquals("v2", rolled.value());
+        assertEquals(3L, rolled.versionNumber());
+    }
+
+    @Test
+    void rollbackBeyondHistoryReturnsEmpty() {
+        configs.set("svc", "k", "v1");
+        configs.set("svc", "k", "v2");
+        assertTrue(configs.rollback("svc", "k", 5).isEmpty());
+        // No new version should have been appended.
+        assertEquals(2, configs.history("svc", "k").size());
+    }
+
+    @Test
+    void rollbackOnAbsentKeyReturnsEmpty() {
+        assertTrue(configs.rollback("svc", "missing", 0).isEmpty());
+    }
+
+    @Test
+    void rollbackNegativeVersionsBackReturnsEmpty() {
+        configs.set("svc", "k", "v1");
+        assertTrue(configs.rollback("svc", "k", -1).isEmpty());
+    }
+
+    @Test
     void timestampsAreMonotonicAcrossVersions() {
         configs.set("svc", "k", "v1");
         configs.set("svc", "k", "v2");

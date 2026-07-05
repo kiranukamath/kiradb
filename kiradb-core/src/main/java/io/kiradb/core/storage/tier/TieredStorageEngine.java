@@ -2,6 +2,9 @@ package io.kiradb.core.storage.tier;
 
 import io.kiradb.core.storage.StorageEngine;
 import io.kiradb.core.storage.StorageEntry;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,6 +44,15 @@ import java.util.Optional;
  * <h2>Extensibility</h2>
  * <p>Pass a different {@link TierOrchestrator} implementation to the constructor
  * to swap in an AI/ML-driven promotion strategy — no other code changes needed.
+ *
+ * <h2>Metrics (Phase 13 hardening)</h2>
+ * <p>A {@link MeterRegistry} can be supplied to publish MemCache hit/miss/eviction
+ * counts, AccessTracker size, and TierManager promote/evict/purge counts as
+ * Micrometer gauges/counters. Callers that don't care about metrics can omit it —
+ * constructors without a {@code MeterRegistry} parameter default to a private
+ * {@link SimpleMeterRegistry} instance (in-memory only, never exported anywhere),
+ * so existing call sites keep compiling and running unchanged. See
+ * {@link #registerMetrics(MeterRegistry)} for the exact meter names.
  */
 public final class TieredStorageEngine implements StorageEngine {
 
@@ -51,6 +63,7 @@ public final class TieredStorageEngine implements StorageEngine {
     private final AccessTracker    accessTracker;
     private final TierOrchestrator orchestrator;
     private final TierManager      tierManager;
+    private final MeterRegistry    meterRegistry;
 
     /**
      * Create a TieredStorageEngine with a {@link RuleBasedOrchestrator} and default settings.
@@ -65,6 +78,9 @@ public final class TieredStorageEngine implements StorageEngine {
     /**
      * Create a TieredStorageEngine with a custom orchestrator and scan interval.
      * Use this constructor to plug in an AI orchestrator in a future phase.
+     * Metrics are published to a private, never-exported {@link SimpleMeterRegistry}
+     * — use {@link #TieredStorageEngine(StorageEngine, int, TierOrchestrator, long, MeterRegistry)}
+     * to publish to a real registry (e.g. one backed by a Prometheus exporter).
      *
      * @param tier2           the underlying SSD storage engine
      * @param maxCacheEntries maximum MemCache entries
@@ -75,13 +91,96 @@ public final class TieredStorageEngine implements StorageEngine {
                                 final int maxCacheEntries,
                                 final TierOrchestrator orchestrator,
                                 final long tierScanIntervalMs) {
+        this(tier2, maxCacheEntries, orchestrator, tierScanIntervalMs, new SimpleMeterRegistry());
+    }
+
+    /**
+     * Create a TieredStorageEngine with a custom orchestrator, scan interval, and
+     * an explicit {@link MeterRegistry} to publish metrics to.
+     *
+     * @param tier2              the underlying SSD storage engine
+     * @param maxCacheEntries    maximum MemCache entries
+     * @param orchestrator       promotion/eviction strategy
+     * @param tierScanIntervalMs how often TierManager scans all keys (milliseconds)
+     * @param meterRegistry      registry to publish MemCache/AccessTracker/TierManager
+     *                           metrics to (see {@link #registerMetrics(MeterRegistry)})
+     */
+    public TieredStorageEngine(final StorageEngine tier2,
+                                final int maxCacheEntries,
+                                final TierOrchestrator orchestrator,
+                                final long tierScanIntervalMs,
+                                final MeterRegistry meterRegistry) {
         this.tier2         = tier2;
         this.orchestrator  = orchestrator;
-        this.accessTracker = new AccessTracker();
+        this.meterRegistry = meterRegistry;
+        // Hard-cap the tracker at 10x MemCache capacity (Phase 13 hardening) so a
+        // pathological full-keyspace scan between TierManager purge cycles cannot
+        // balloon tracked-key memory unboundedly. See AccessTracker's class Javadoc.
+        this.accessTracker = new AccessTracker(
+                AccessTracker.recommendedMaxTrackedEntries(maxCacheEntries));
         this.memCache      = new MemCache(maxCacheEntries, accessTracker);
         this.tierManager   = new TierManager(memCache, accessTracker, orchestrator,
                 tier2, tierScanIntervalMs);
         this.tierManager.start();
+        registerMetrics(meterRegistry);
+    }
+
+    /**
+     * Register all Phase 13 hardening metrics on the given registry.
+     *
+     * <h2>Meter names</h2>
+     * <pre>
+     *   kiradb.memcache.size                (gauge)   current MemCache entry count
+     *   kiradb.memcache.hits                (counter) cumulative MemCache hits
+     *   kiradb.memcache.misses              (counter) cumulative MemCache misses
+     *   kiradb.memcache.evictions           (counter) cumulative MemCache evictions
+     *   kiradb.accesstracker.size           (gauge)   current AccessTracker tracked-key count
+     *   kiradb.tiermanager.promotions       (counter) cumulative WARM-&gt;HOT promotions
+     *   kiradb.tiermanager.evictions        (counter) cumulative HOT-&gt;WARM evictions
+     *   kiradb.tiermanager.purges           (counter) cumulative tracker purges
+     * </pre>
+     * Counters are implemented as {@link Gauge}s over the underlying cumulative
+     * {@code AtomicLong}s (rather than Micrometer {@code Counter}s) because the
+     * source of truth already lives in {@link MemCache}/{@link TierManager} as
+     * plain counters usable without Micrometer on the classpath — a gauge over
+     * "current cumulative value" is the correct Micrometer primitive for
+     * externally-maintained monotonic counts.
+     *
+     * @param registry the registry to publish to
+     */
+    private void registerMetrics(final MeterRegistry registry) {
+        Gauge.builder("kiradb.memcache.size", memCache, MemCache::size)
+                .description("Current number of entries held in MemCache (Tier 1)")
+                .register(registry);
+        Gauge.builder("kiradb.memcache.hits", memCache, MemCache::hitCount)
+                .description("Cumulative MemCache hit count")
+                .register(registry);
+        Gauge.builder("kiradb.memcache.misses", memCache, MemCache::missCount)
+                .description("Cumulative MemCache miss count")
+                .register(registry);
+        Gauge.builder("kiradb.memcache.evictions", memCache, MemCache::evictionCount)
+                .description("Cumulative MemCache eviction count (capacity-driven)")
+                .register(registry);
+        Gauge.builder("kiradb.accesstracker.size", accessTracker, AccessTracker::size)
+                .description("Current number of keys tracked by AccessTracker")
+                .register(registry);
+        Gauge.builder("kiradb.tiermanager.promotions", tierManager, TierManager::cumulativePromoted)
+                .description("Cumulative count of WARM -> HOT promotions")
+                .register(registry);
+        Gauge.builder("kiradb.tiermanager.evictions", tierManager, TierManager::cumulativeEvicted)
+                .description("Cumulative count of HOT -> WARM evictions")
+                .register(registry);
+        Gauge.builder("kiradb.tiermanager.purges", tierManager, TierManager::cumulativePurged)
+                .description("Cumulative count of AccessTracker entries purged")
+                .register(registry);
+    }
+
+    /**
+     * @return the {@link MeterRegistry} metrics are published to (a private
+     *         {@link SimpleMeterRegistry} unless one was explicitly supplied)
+     */
+    public MeterRegistry meterRegistry() {
+        return meterRegistry;
     }
 
     // ── Writes ────────────────────────────────────────────────────────────────
@@ -169,6 +268,36 @@ public final class TieredStorageEngine implements StorageEngine {
         } catch (Exception e) {
             LOG.warn("Error closing tier2: {}", e.getMessage());
         }
+    }
+
+    // ── Observability (read-only, Phase 9 dashboard) ─────────────────────────
+
+    /**
+     * Number of entries currently held in MemCache (Tier 1) — the "hot" key count.
+     *
+     * @return current MemCache entry count
+     */
+    public int memCacheSize() {
+        return memCache.size();
+    }
+
+    /**
+     * Configured MemCache capacity in entries.
+     *
+     * @return maximum MemCache entry count before eviction triggers
+     */
+    public int memCacheMaxEntries() {
+        return memCache.maxEntries();
+    }
+
+    /**
+     * Number of keys currently tracked by the {@link AccessTracker} — the working
+     * set (hot + recently-touched warm keys), not the full dataset.
+     *
+     * @return tracked key count
+     */
+    public int trackedKeys() {
+        return accessTracker.size();
     }
 
     // ── private ───────────────────────────────────────────────────────────────

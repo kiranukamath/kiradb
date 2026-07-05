@@ -1,0 +1,54 @@
+site_name: KiraDB
+site_description: >-
+  A distributed database with adaptive tiered storage, built-in feature flags,
+  rate limiting, config management, and semantic caching for AI workloads.
+  Redis/Valkey protocol compatible.
+repo_url: https://github.com/kiranukamath/kiradb
+repo_name: kiranukamath/kiradb
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+# NOTE: this nav intentionally only lists files that exist under docs/ today.
+# CLAUDE.md's Phase 0/12 plan mentions docs/architecture.md and
+# docs/contributing.md — neither has been written yet, so they are not
+# listed here to avoid a nav link to a 404. Add them (and CONTRIBUTING.md /
+# CODE_OF_CONDUCT.md at the repo root, also not yet written) when they exist.
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Deployment: deployment.md
+  - Built-in Services: services.md
+  - Java SDK: sdk.md
+  - Command Reference: commands/reference.md
+  - Internals:
+      - Netty: internals/netty.md
+      - TreeMap / MemTable: internals/treemap.md
+      - Raft Manual Test: internals/raft-manual-test.md
+      - CRDTs: internals/crdts.md
+      - Semantic Cache Math: internals/semantic-cache-math.md
+      - "Phase 8 — Semantic Cache": internals/phase8-semantic-cache.md
+      - "Phase 9 — Dashboard": internals/phase9-dashboard.md
+      - "Phase 10 — Java SDK": internals/phase10-sdk.md
+      - "Phase 11 — Benchmarks": internals/phase11-benchmarks.md
+      - "Phase 12 — Go-Live": internals/phase12-golive.md
+      - "Phase 13 — Deferred Hardening": internals/phase13-hardening.md

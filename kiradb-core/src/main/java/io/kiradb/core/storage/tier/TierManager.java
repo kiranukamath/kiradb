@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Background manager that periodically re-evaluates every tracked key and
@@ -48,6 +49,11 @@ public final class TierManager implements AutoCloseable {
     private final long             intervalMs;
 
     private volatile Thread managerThread;
+
+    // ── metrics (Phase 13 hardening) — cumulative across all cycles ──────────
+    private final AtomicLong cumulativePromoted = new AtomicLong(0L);
+    private final AtomicLong cumulativeEvicted = new AtomicLong(0L);
+    private final AtomicLong cumulativePurged = new AtomicLong(0L);
 
     /**
      * Create a TierManager with the default 5-minute scan interval.
@@ -168,8 +174,40 @@ public final class TierManager implements AutoCloseable {
             }
         }
 
+        cumulativePromoted.addAndGet(promoted);
+        cumulativeEvicted.addAndGet(evicted);
+        cumulativePurged.addAndGet(purged);
+
         LOG.debug("TierManager cycle: promoted={} evicted={} purged={} tracked={}",
                 promoted, evicted, purged, accessTracker.size());
+    }
+
+    /**
+     * Total keys promoted (WARM -&gt; HOT) across all cycles since construction.
+     *
+     * @return cumulative promotion count
+     */
+    public long cumulativePromoted() {
+        return cumulativePromoted.get();
+    }
+
+    /**
+     * Total keys evicted (HOT -&gt; WARM) across all cycles since construction.
+     *
+     * @return cumulative eviction count
+     */
+    public long cumulativeEvicted() {
+        return cumulativeEvicted.get();
+    }
+
+    /**
+     * Total tracker entries purged (score below {@link #MIN_TRACK_SCORE}) across
+     * all cycles since construction.
+     *
+     * @return cumulative purge count
+     */
+    public long cumulativePurged() {
+        return cumulativePurged.get();
     }
 
     /**

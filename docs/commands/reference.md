@@ -464,3 +464,72 @@ $<new value>
 
 `CFG.UNWATCH` returns 1 if the connection was previously subscribed, 0 otherwise.
 Subscriptions are auto-cleaned when the connection closes.
+
+---
+
+## Semantic Cache (v0.7.0)
+
+Caches LLM (prompt → response) pairs and answers lookups by **meaning**, not exact key match.
+Prompts are embedded into vectors; lookups run a cosine-similarity search and return the best
+match at or above a threshold. Default embedding provider is lexical (word overlap, zero
+dependencies); switch to a neural model with `-Dkiradb.sc.provider=ollama`.
+See [Phase 8 internals](../internals/phase8-semantic-cache.md) for design details.
+
+### SC.SET
+```
+SC.SET prompt response [EX seconds]
+```
+Cache a response under a prompt. `EX` sets a TTL in seconds (omit for no expiry). Returns `OK`.
+
+```
+> SC.SET "what is the capital of France?" "Paris is the capital."
+OK
+
+> SC.SET "today's weather in Pune" "Sunny, 31°C" EX 3600
+OK
+```
+
+### SC.GET
+```
+SC.GET prompt [THRESHOLD t]
+```
+Return the cached response whose prompt is most similar to the query, if the similarity is at
+or above the threshold (default `0.85`, configurable via `-Dkiradb.sc.threshold`). Returns the
+response body, or `nil` on a miss. `THRESHOLD` must be in `(0, 1]`.
+
+```
+> SC.GET "capital of france?" THRESHOLD 0.5
+"Paris is the capital."
+
+> SC.GET "how do I bake sourdough?"
+(nil)
+```
+
+### SC.DEL
+```
+SC.DEL prompt
+```
+Delete the entry for an **exact** prompt (byte-identical, not semantic). Returns `1` if an
+entry was removed, `0` otherwise.
+
+```
+> SC.DEL "what is the capital of France?"
+(integer) 1
+```
+
+### SC.STATS
+```
+SC.STATS
+```
+Return cache counters as a RESP3 map: `hits`, `misses`, `entries` (live entries in the index),
+`estimated_tokens_saved` (sum of `response length / 4` over hits), and `hit_rate` as a string.
+Counters reset on restart; entries survive restarts (the index is rebuilt from storage).
+
+```
+> SC.STATS
+1# "hits"                   => (integer) 42
+2# "misses"                 => (integer) 8
+3# "entries"                => (integer) 30
+4# "estimated_tokens_saved" => (integer) 1260
+5# "hit_rate"               => "0.84"
+```

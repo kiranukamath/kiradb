@@ -25,14 +25,14 @@ import java.util.concurrent.ConcurrentMap;
  *   <li><b>Metrics:</b> four {@link io.kiradb.crdt.GCounter}s — one per
  *       {(impressions, conversions) × (enabled cohort, disabled cohort)}.
  *       The bandit (Phase 14) consumes these.</li>
- *   <li><b>Index:</b> a tracking set of all known flag names so
- *       {@code FLAG.LIST} can enumerate them. Maintained in-memory; rebuilt on
- *       restart by replaying {@code listFlags} which lazy-loads existing names
- *       from disk via the CrdtStore as they're first read. (For Phase 7 a
- *       persistent index is overkill; we keep flag names in memory and rely on
- *       admin re-registration on restart in the unlikely case a server was
- *       restarted before any client touched a flag — see Phase 13 backlog
- *       entry to add a persistent index.)</li>
+ *   <li><b>Index:</b> an {@link io.kiradb.crdt.ORSet} named {@code "flag:_index"}
+ *       holding every flag name ever set, plus an in-memory {@code knownFlags}
+ *       cache mirroring it. Every {@link #set(FeatureFlag)} adds to both. On
+ *       construction the in-memory cache is seeded from the ORSet, so
+ *       {@code FLAG.LIST} is complete immediately after a restart — even for
+ *       flags no client has read or written since boot. (Phase 13 hardening:
+ *       this replaces the Phase 7 in-memory-only index, which lost names on
+ *       restart until a client touched the flag again.)</li>
  * </ul>
  *
  * <h2>Why LWW for flag state, GCounter for metrics</h2>
@@ -48,18 +48,33 @@ public final class FlagStore {
     private static final String CONVERSIONS_ENABLED  = ":conversions:enabled";
     private static final String CONVERSIONS_DISABLED = ":conversions:disabled";
 
+    /** Name of the ORSet persisting the set of all known flag names. */
+    private static final String FLAG_INDEX_NAME = "flag:_index";
+
     private final CrdtStore crdtStore;
 
-    /** In-memory index of known flag names, populated on every set/get. */
+    /**
+     * In-memory index of known flag names, mirroring the persistent
+     * {@value #FLAG_INDEX_NAME} ORSet. Kept in memory for fast {@code FLAG.LIST}
+     * reads; seeded from the ORSet on construction so it is complete right after
+     * a restart.
+     */
     private final ConcurrentMap<String, Boolean> knownFlags = new ConcurrentHashMap<>();
 
     /**
      * Create a flag store backed by the given CRDT store.
      *
-     * @param crdtStore CRDT store providing LWW + GCounter + persistence
+     * <p>Seeds the in-memory {@code knownFlags} index from the persistent
+     * {@code flag:_index} ORSet so {@link #listFlags()} is complete immediately,
+     * even for flags no client has read or written since this instance started.
+     *
+     * @param crdtStore CRDT store providing LWW + GCounter + ORSet + persistence
      */
     public FlagStore(final CrdtStore crdtStore) {
         this.crdtStore = Objects.requireNonNull(crdtStore, "crdtStore");
+        for (String name : crdtStore.orSet(FLAG_INDEX_NAME).elements()) {
+            knownFlags.put(name, Boolean.TRUE);
+        }
     }
 
     // --- admin operations ---------------------------------------------------
@@ -72,7 +87,11 @@ public final class FlagStore {
     public void set(final FeatureFlag flag) {
         Objects.requireNonNull(flag, "flag");
         crdtStore.lwwSet(flagKey(flag.name()), flag.serialize());
-        knownFlags.put(flag.name(), Boolean.TRUE);
+        if (knownFlags.put(flag.name(), Boolean.TRUE) == null) {
+            // Only touch the ORSet on first sight of this name — avoids piling up
+            // redundant add-tags (and tombstone-free growth) on every re-set.
+            crdtStore.orSetAdd(FLAG_INDEX_NAME, flag.name());
+        }
     }
 
     /**

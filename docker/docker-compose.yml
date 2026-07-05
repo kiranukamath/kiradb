@@ -1,0 +1,109 @@
+# docker-compose.yml — KiraDB local development
+#
+# WHAT'S REAL TODAY vs ASPIRATIONAL
+# ----------------------------------
+# KiraDBServer.main() (kiradb-server/src/main/java/io/kiradb/server/KiraDBServer.java)
+# boots a single, standalone node: one TieredStorageEngine, one CrdtStore, one
+# RESP3 listener on 6379, one HTTP API on 8080. It does NOT start a Raft
+# instance, does NOT read KIRA_PEERS, and does NOT gossip CRDT state to other
+# processes. Raft itself is implemented and tested (see kiradb-raft's test
+# suite and docs/internals/raft-manual-test.md) but nothing in the server's
+# bootstrap path wires it up — there is no cluster today, just multiple
+# independent single-node instances that happen to run side by side.
+#
+# The `kiradb` service below is the one thing this file can honestly claim:
+# a single working node you can point a Redis client at. The `kiradb-cluster`
+# profile underneath it is the CLAUDE.md Phase 12 plan's 3-node layout,
+# included so the intended shape is visible — but running it today gives you
+# three UNCOORDINATED single-node instances, not a Raft cluster. Don't rely
+# on KIRA_NODE_ID / KIRA_PEERS for real clustering; KIRA_NODE_ID only feeds
+# CrdtStore's node id (see kiradb.node.id below) and KIRA_PEERS is accepted
+# by nothing in this codebase yet. Tracked as a real gap in
+# docs/internals/phase12-golive.md → "How to make this better".
+
+services:
+  kiradb:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: kiradb/kiradb:latest
+    ports:
+      - "6379:6379"   # RESP3 — redis-cli, Jedis, any Redis client
+      - "8080:8080"   # HTTP dashboard / ops JSON API
+    environment:
+      # Maps to -Dkiradb.node.id, read by KiraDBServer.resolveNodeId().
+      # Only affects CRDT slot ownership on this single node — it does not
+      # register the node with any peer.
+      JAVA_OPTS: "-Dkiradb.data.dir=/data -Dkiradb.node.id=kiradb-1"
+    volumes:
+      - kiradb-data:/data
+
+volumes:
+  kiradb-data:
+
+# ---------------------------------------------------------------------------
+# ASPIRATIONAL — CLAUDE.md Phase 12's 3-node layout.
+#
+# This is what a real cluster should look like once Raft + peer discovery are
+# wired into KiraDBServer.main() (see docs/internals/phase12-golive.md for the
+# concrete task list: parse KIRA_PEERS, start a RaftNode per instance, bind
+# port 7379 to the Raft transport, route committed entries into the same
+# TieredStorageEngine each node already has). Uncomment and run with:
+#   docker compose --profile cluster up
+# to see the intended topology — today it just gives you three independent
+# nodes with no data consistency guarantees between them, so don't use this
+# for anything beyond looking at the shape.
+# ---------------------------------------------------------------------------
+#
+#   kiradb-1:
+#     build:
+#       context: ..
+#       dockerfile: docker/Dockerfile
+#     profiles: ["cluster"]
+#     ports:
+#       - "6379:6379"
+#       - "7379:7379"
+#       - "8080:8080"
+#     environment:
+#       JAVA_OPTS: "-Dkiradb.data.dir=/data -Dkiradb.node.id=node-1"
+#       KIRA_NODE_ID: node-1
+#       KIRA_PEERS: kiradb-2:7379,kiradb-3:7379
+#     volumes:
+#       - kiradb-1-data:/data
+#
+#   kiradb-2:
+#     build:
+#       context: ..
+#       dockerfile: docker/Dockerfile
+#     profiles: ["cluster"]
+#     ports:
+#       - "6380:6379"
+#       - "7380:7379"
+#       - "8081:8080"
+#     environment:
+#       JAVA_OPTS: "-Dkiradb.data.dir=/data -Dkiradb.node.id=node-2"
+#       KIRA_NODE_ID: node-2
+#       KIRA_PEERS: kiradb-1:7379,kiradb-3:7379
+#     volumes:
+#       - kiradb-2-data:/data
+#
+#   kiradb-3:
+#     build:
+#       context: ..
+#       dockerfile: docker/Dockerfile
+#     profiles: ["cluster"]
+#     ports:
+#       - "6381:6379"
+#       - "7381:7379"
+#       - "8082:8080"
+#     environment:
+#       JAVA_OPTS: "-Dkiradb.data.dir=/data -Dkiradb.node.id=node-3"
+#       KIRA_NODE_ID: node-3
+#       KIRA_PEERS: kiradb-1:7379,kiradb-2:7379
+#     volumes:
+#       - kiradb-3-data:/data
+#
+# volumes:
+#   kiradb-1-data:
+#   kiradb-2-data:
+#   kiradb-3-data:

@@ -23,6 +23,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -165,6 +166,84 @@ class CrdtIntegrationTest {
 
         Object total = jedis.sendCommand(new Cmd("CRDT.GET"), "global-events");
         assertEquals(17L, total);
+    }
+
+    @Test
+    void crdtMergeAcceptsBase64PnCounterState() {
+        jedis.sendCommand(new Cmd("CRDT.PNADD"), "global-balance", "100");
+
+        io.kiradb.crdt.PNCounter peer = new io.kiradb.crdt.PNCounter("peer-node");
+        peer.add(50);
+        peer.add(-20);
+        String b64 = Base64.getEncoder().encodeToString(peer.serialize());
+
+        Object mergeReply = jedis.sendCommand(
+                new Cmd("CRDT.MERGE"), "PNCOUNTER", "global-balance", b64);
+        assertEquals("OK", SafeEncoder.encode((byte[]) mergeReply));
+
+        // Local P=100,N=0 merged with peer P=50,N=20 -> P=150,N=20 -> value=130
+        Object total = jedis.sendCommand(new Cmd("CRDT.PNGET"), "global-balance");
+        assertEquals(130L, total);
+    }
+
+    @Test
+    void crdtMergeAcceptsBase64LwwRegisterState() {
+        jedis.sendCommand(new Cmd("CRDT.LWWSET"), "global-flag", "local-value");
+
+        // Peer write stamped far in the future so it deterministically wins the merge.
+        io.kiradb.crdt.LWWRegister peer = new io.kiradb.crdt.LWWRegister("peer-node");
+        peer.set("peer-value".getBytes(StandardCharsets.UTF_8), System.currentTimeMillis() + 60_000L);
+        String b64 = Base64.getEncoder().encodeToString(peer.serialize());
+
+        Object mergeReply = jedis.sendCommand(
+                new Cmd("CRDT.MERGE"), "LWWREGISTER", "global-flag", b64);
+        assertEquals("OK", SafeEncoder.encode((byte[]) mergeReply));
+
+        Object value = jedis.sendCommand(new Cmd("CRDT.LWWGET"), "global-flag");
+        assertEquals("peer-value", SafeEncoder.encode((byte[]) value));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void crdtMergeAcceptsBase64MvRegisterState() {
+        jedis.sendCommand(new Cmd("CRDT.MVSET"), "global-doc", "local-edit");
+
+        // Concurrent peer write (peer never saw the local write) — both should survive merge.
+        io.kiradb.crdt.MVRegister peer = new io.kiradb.crdt.MVRegister("peer-node");
+        peer.set("peer-edit".getBytes(StandardCharsets.UTF_8));
+        String b64 = Base64.getEncoder().encodeToString(peer.serialize());
+
+        Object mergeReply = jedis.sendCommand(
+                new Cmd("CRDT.MERGE"), "MVREGISTER", "global-doc", b64);
+        assertEquals("OK", SafeEncoder.encode((byte[]) mergeReply));
+
+        Object reply = jedis.sendCommand(new Cmd("CRDT.MVGET"), "global-doc");
+        Set<String> values = decodeStringSet((List<byte[]>) reply);
+        assertEquals(Set.of("local-edit", "peer-edit"), values);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void crdtMergeAcceptsBase64OrSetState() {
+        jedis.sendCommand(new Cmd("CRDT.SADD"), "global-members", "alice");
+
+        io.kiradb.crdt.ORSet peer = new io.kiradb.crdt.ORSet();
+        peer.add("bob");
+        String b64 = Base64.getEncoder().encodeToString(peer.serialize());
+
+        Object mergeReply = jedis.sendCommand(
+                new Cmd("CRDT.MERGE"), "ORSET", "global-members", b64);
+        assertEquals("OK", SafeEncoder.encode((byte[]) mergeReply));
+
+        Object reply = jedis.sendCommand(new Cmd("CRDT.SMEMBERS"), "global-members");
+        Set<String> members = decodeStringSet((List<byte[]>) reply);
+        assertEquals(Set.of("alice", "bob"), members);
+    }
+
+    @Test
+    void crdtMergeRejectsUnsupportedType() {
+        assertThrows(redis.clients.jedis.exceptions.JedisDataException.class,
+                () -> jedis.sendCommand(new Cmd("CRDT.MERGE"), "BOGUS", "x", "AA=="));
     }
 
     private static Set<String> decodeStringSet(final List<byte[]> raw) {

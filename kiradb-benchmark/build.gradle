@@ -1,9 +1,57 @@
-// kiradb-benchmark: JMH benchmarks
+// kiradb-benchmark: JMH benchmarks + a standalone load generator (Phase 11)
 dependencies {
+    implementation project(':kiradb-core')
     implementation project(':kiradb-server')
     implementation project(':kiradb-client')
+    implementation project(':kiradb-crdt')
+    implementation project(':kiradb-services')
+    implementation project(':kiradb-semantic-cache')
 
-    // JMH — added in Phase 11
-    // implementation 'org.openjdk.jmh:jmh-core:1.37'
-    // annotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
+    // JMH — micro-benchmark harness. No external Gradle JMH plugin is used
+    // (avoids fighting the root project's --enable-preview toolchain flag);
+    // instead @Benchmark classes compile as ordinary main sources and we run
+    // them via a small `jmh` JavaExec task defined below, same approach the
+    // JMH project itself documents for plugin-free setups.
+    implementation 'org.openjdk.jmh:jmh-core:1.37'
+    annotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
+
+    testImplementation project(':kiradb-server')
+    testImplementation project(':kiradb-client')
+    testImplementation project(':kiradb-crdt')
+    testImplementation project(':kiradb-services')
+}
+
+// Runs the full JMH suite (or a filtered subset via -Pjmh.include=Regex).
+// Not part of `build`/`check` — JMH runs take minutes, CI stays fast.
+// Usage: ./gradlew :kiradb-benchmark:jmh
+//        ./gradlew :kiradb-benchmark:jmh -Pjmh.include=KvThroughput
+tasks.register('jmh', JavaExec) {
+    group = 'benchmark'
+    description = 'Run JMH benchmarks (io.kiradb.benchmark.*Benchmark classes).'
+    dependsOn 'classes'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.openjdk.jmh.Main'
+    jvmArgs '--enable-preview'
+    args = [project.findProperty('jmh.include') ?: '.*Benchmark.*']
+}
+
+// Standalone manual load generator against a live server — not wired into
+// `test` or `build`. Run explicitly, e.g.:
+//   ./gradlew :kiradb-benchmark:runLoadGenerator -Dtarget=5000 -Dduration=10 -Dport=6379
+// System properties passed to the Gradle CLI (-Dfoo=bar) configure the Gradle daemon's own
+// JVM, not this forked one, unless explicitly copied across — systemProperties() below does
+// that copy for every property LoadGenerator understands.
+tasks.register('runLoadGenerator', JavaExec) {
+    group = 'benchmark'
+    description = 'Run the LoadGenerator against a live KiraDB server (manual tool).'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.kiradb.benchmark.LoadGenerator'
+    jvmArgs '--enable-preview'
+    standardInput = System.in
+    List<String> forwardedProps = ['host', 'port', 'target', 'duration', 'keyspace', 'readRatio', 'threads']
+    forwardedProps.each { key ->
+        if (System.getProperty(key) != null) {
+            systemProperty key, System.getProperty(key)
+        }
+    }
 }

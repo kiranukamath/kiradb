@@ -1,3 +1,13 @@
 // kiradb-core: storage engine, WAL, LSM Tree, MemTable, SSTable
+plugins {
+    id 'java-library'
+}
+
 dependencies {
+    // Metrics — Phase 13 hardening: MemCache/AccessTracker/TierManager gauges and counters.
+    // `api` (not `implementation`) because TieredStorageEngine's constructor accepts a
+    // MeterRegistry, so callers in other modules (kiradb-server) need the type on their
+    // compile classpath too. Core only (no Prometheus registry dependency here); callers
+    // supply whichever MeterRegistry implementation they want (SimpleMeterRegistry by default).
+    api 'io.micrometer:micrometer-core:1.14.2'
 }
